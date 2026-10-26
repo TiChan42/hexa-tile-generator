@@ -2,9 +2,11 @@ import { configSchema, defaultConfig, migrateConfig } from '../core/config';
 import type { ConfigMigration } from '../core/config';
 import type { TileConfig } from '../core/types';
 
-export const PROJECT_STORAGE_KEY = 'hexa-studio-project-v10';
+export const PROJECT_STORAGE_KEY = 'hexa-studio-project-v12';
 export const PROJECT_STORAGE_KEYS = [
   PROJECT_STORAGE_KEY,
+  'hexa-studio-project-v11',
+  'hexa-studio-project-v10',
   'hexa-studio-project-v9',
   'hexa-studio-project-v8',
   'hexa-studio-project-v7',

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { DECORATION_KINDS } from './objects';
+import { defaultObjectColorProfiles } from './object-colors';
 import type { FieldEdit, TileConfig } from './types';
 
 const hex = z.string().regex(/^#[0-9a-fA-F]{6}$/);
@@ -94,10 +95,11 @@ const fieldList = (schema: z.ZodType<FieldEdit>) =>
       (fields) => new Set(fields.map((field) => field.id)).size === fields.length,
       'Spielfeld-IDs müssen eindeutig sein.',
     );
+const colorTriplet = z.tuple([hex, hex, hex]);
 export const configSchema = z
   .object({
-    schemaVersion: z.literal(10),
-    generatorVersion: z.literal('10.0.0'),
+    schemaVersion: z.literal(12),
+    generatorVersion: z.literal('12.0.0'),
     name: z.string().trim().min(1).max(80),
     seed: z.string().min(1).max(128),
     editing: z.object({ regeneratePathsOnCenterChange: z.boolean() }).strict(),
@@ -134,6 +136,17 @@ export const configSchema = z
       .strict(),
     terrain: z
       .object({
+        noise: z
+          .object({
+            seed: z.string().min(1).max(128),
+            origin: z
+              .object({
+                x: z.number().finite().min(-1000).max(1000),
+                y: z.number().finite().min(-1000).max(1000),
+              })
+              .strict(),
+          })
+          .strict(),
         scale: z.number().min(0.1).max(12),
         octaves: z.number().int().min(1).max(8),
         persistence: z.number().min(0.1).max(0.9),
@@ -172,7 +185,7 @@ export const configSchema = z
       .object({
         enabled: z.boolean(),
         auto: z.boolean(),
-        enabledSides: z.array(z.boolean()).length(6),
+        enabledSides: z.array(z.literal(true)).length(6),
         loop: z.boolean(),
         fieldSize: z.number().int().min(1).max(80),
         fieldCount: z.number().int().min(7).max(24),
@@ -201,6 +214,54 @@ export const configSchema = z
             (values) => new Set(values).size === values.length,
             'Objektarten müssen eindeutig sein.',
           ),
+        colorProfiles: z
+          .object({
+            trees: z
+              .object({
+                enabled: z.boolean(),
+                profiles: z
+                  .array(
+                    z
+                      .object({
+                        id: z.string().min(1).max(100),
+                        name: z.string().min(1).max(60),
+                        foliage: colorTriplet,
+                      })
+                      .strict(),
+                  )
+                  .min(1)
+                  .max(8)
+                  .refine(
+                    (profiles) =>
+                      new Set(profiles.map((profile) => profile.id)).size === profiles.length,
+                    'Farbprofil-IDs müssen eindeutig sein.',
+                  ),
+              })
+              .strict(),
+            mushrooms: z
+              .object({
+                enabled: z.boolean(),
+                profiles: z
+                  .array(
+                    z
+                      .object({
+                        id: z.string().min(1).max(100),
+                        name: z.string().min(1).max(60),
+                        cap: colorTriplet,
+                      })
+                      .strict(),
+                  )
+                  .min(1)
+                  .max(8)
+                  .refine(
+                    (profiles) =>
+                      new Set(profiles.map((profile) => profile.id)).size === profiles.length,
+                    'Farbprofil-IDs müssen eindeutig sein.',
+                  ),
+              })
+              .strict(),
+          })
+          .strict(),
         sourceDensity: z.number().min(0).max(1).optional(),
         placements: z
           .array(
@@ -235,9 +296,18 @@ export const configSchema = z
   })
   .strict();
 
+const v11_1Schema = configSchema
+  .extend({
+    schemaVersion: z.literal(11),
+    generatorVersion: z.literal('11.1.0'),
+    decoration: configSchema.shape.decoration.omit({ colorProfiles: true }),
+  })
+  .strict();
+const v11_0Schema = v11_1Schema.extend({ generatorVersion: z.literal('11.0.0') }).strict();
+
 export const defaultConfig: TileConfig = {
-  schemaVersion: 10,
-  generatorVersion: '10.0.0',
+  schemaVersion: 12,
+  generatorVersion: '12.0.0',
   name: 'Mooslicht',
   seed: 'mooslicht-42',
   editing: { regeneratePathsOnCenterChange: false },
@@ -268,6 +338,7 @@ export const defaultConfig: TileConfig = {
   border: { enabled: false, width: 0.015, mode: 'black', color: '#000000' },
   grid: { kind: 'hex', divisions: 18, subDivisions: 3, showGrid: true, showSubgrid: false },
   terrain: {
+    noise: { seed: 'mooslicht-42', origin: { x: 0, y: 0 } },
     scale: 2.5,
     octaves: 4,
     persistence: 0.5,
@@ -319,6 +390,7 @@ export const defaultConfig: TileConfig = {
     density: 0.55,
     maxPerCell: 5,
     species: ['pine', 'oak', 'birch', 'bush', 'fern', 'mushrooms', 'rock'],
+    colorProfiles: defaultObjectColorProfiles(),
     placements: [],
   },
   camera: { mode: 'orbit', azimuth: -25, elevation: 52, fov: 35, zoom: 1 },
@@ -326,13 +398,27 @@ export const defaultConfig: TileConfig = {
   palette: ['#d4bb83', '#af7864', '#7e9a91', '#b6a3c9'],
 };
 export const DEFAULT_CONFIG = defaultConfig;
+const v10_1Schema = v11_1Schema
+  .extend({
+    schemaVersion: z.literal(10),
+    generatorVersion: z.literal('10.1.0'),
+    terrain: configSchema.shape.terrain.omit({ noise: true }).strict(),
+  })
+  .strict();
+const legacySideSettings = v10_1Schema.shape.paths
+  .extend({ enabledSides: z.array(z.boolean()).length(6) })
+  .strict();
+/** V10.0 allowed disabling outer entrances and used the original automatic field layout. */
+const v10Schema = v10_1Schema
+  .extend({ generatorVersion: z.literal('10.0.0'), paths: legacySideSettings })
+  .strict();
 /** V9 has no center-edit policy or action weights; freeze its historical object catalog. */
-const v9Schema = configSchema
+const v9Schema = v10Schema
   .omit({ editing: true, actions: true })
   .extend({
     schemaVersion: z.literal(9),
     generatorVersion: z.literal('9.0.0'),
-    decoration: configSchema.shape.decoration
+    decoration: v10_1Schema.shape.decoration
       .extend({
         species: z
           .array(v5Kind)
@@ -343,7 +429,7 @@ const v9Schema = configSchema
             'Objektarten müssen eindeutig sein.',
           ),
         placements: z
-          .array(configSchema.shape.decoration.shape.placements.element.extend({ kind: v5Kind }))
+          .array(v10_1Schema.shape.decoration.shape.placements.element.extend({ kind: v5Kind }))
           .max(5000),
         modelSlots: modelSlots(V5_DECORATION_KINDS),
       })
@@ -432,7 +518,101 @@ export interface ConfigMigration {
 function withoutRampWidth(paths: object): Record<string, unknown> {
   return Object.fromEntries(Object.entries(paths).filter(([key]) => key !== 'transitionWidth'));
 }
+function currentConfig(value: unknown): TileConfig {
+  const record = z.record(z.string(), z.unknown()).parse(value),
+    paths = z.record(z.string(), z.unknown()).parse(record.paths),
+    terrain = z.record(z.string(), z.unknown()).parse(record.terrain),
+    decoration = z.record(z.string(), z.unknown()).parse(record.decoration),
+    hadDisabledEntrance =
+      Array.isArray(paths.enabledSides) && paths.enabledSides.some((enabled) => enabled === false);
+  return configSchema.parse({
+    ...record,
+    schemaVersion: 12,
+    generatorVersion: '12.0.0',
+    terrain: {
+      ...terrain,
+      noise: terrain.noise ?? { seed: String(record.seed), origin: { x: 0, y: 0 } },
+    },
+    paths: {
+      ...paths,
+      enabledSides: [true, true, true, true, true, true],
+      ...(hadDisabledEntrance ? { auto: true } : {}),
+    },
+    decoration: {
+      ...decoration,
+      colorProfiles: defaultObjectColorProfiles(false),
+    },
+  });
+}
 export function migrateConfig(value: unknown): ConfigMigration {
+  if (
+    typeof value === 'object' &&
+    value !== null &&
+    'schemaVersion' in value &&
+    value.schemaVersion === 11 &&
+    'generatorVersion' in value &&
+    value.generatorVersion === '11.1.0'
+  ) {
+    const legacy = v11_1Schema.parse(value);
+    return {
+      config: currentConfig(legacy),
+      migrated: true,
+      notices: [
+        'Projekt auf Generator 12 umgestellt. Baum- und Pilzfarbprofile wurden ergänzt und bleiben zunächst deaktiviert, damit vorhandene Farben gleich bleiben. Bei neuen Projekten werden die Profile seedbasiert durchmischt; Stämme behalten ihre Modellfarben.',
+      ],
+    };
+  }
+  if (
+    typeof value === 'object' &&
+    value !== null &&
+    'schemaVersion' in value &&
+    value.schemaVersion === 11 &&
+    'generatorVersion' in value &&
+    value.generatorVersion === '11.0.0'
+  ) {
+    const legacy = v11_0Schema.parse(value);
+    return {
+      config: currentConfig(legacy),
+      migrated: true,
+      notices: [
+        'Projekt auf Generator 12 umgestellt. Baum- und Pilzfarbprofile wurden ergänzt und bleiben zunächst deaktiviert, damit vorhandene Farben gleich bleiben. Bei neuen Projekten werden die Profile seedbasiert durchmischt; Stämme behalten ihre Modellfarben.',
+      ],
+    };
+  }
+  if (
+    typeof value === 'object' &&
+    value !== null &&
+    'schemaVersion' in value &&
+    value.schemaVersion === 10 &&
+    'generatorVersion' in value &&
+    value.generatorVersion === '10.1.0'
+  ) {
+    const legacy = v10_1Schema.parse(value);
+    return {
+      config: currentConfig(legacy),
+      migrated: true,
+      notices: [
+        'Projekt auf Generator 12 umgestellt. Baum- und Pilzfarbprofile wurden ausgeschaltet ergänzt, damit bestehende Farben erhalten bleiben. Die Terrain-Noise-Koordinaten sind jetzt gespeichert, damit Kacheln im Bulk-Modus auf einem gemeinsamen Perlin-Feld liegen können. Bestehende Kacheln behalten ihr bisheriges Terrain durch ihren Seed und den Ursprung 0.',
+      ],
+    };
+  }
+  if (
+    typeof value === 'object' &&
+    value !== null &&
+    'schemaVersion' in value &&
+    value.schemaVersion === 10 &&
+    'generatorVersion' in value &&
+    value.generatorVersion === '10.0.0'
+  ) {
+    const legacy = v10Schema.parse(value);
+    return {
+      config: currentConfig(legacy),
+      migrated: true,
+      notices: [
+        'Projekt auf Generator 12 umgestellt. Baum- und Pilzfarbprofile wurden ausgeschaltet ergänzt, damit bestehende Farben erhalten bleiben. Terrain-Noise-Koordinaten werden ergänzt, damit Kacheln im Bulk-Modus auf einem gemeinsamen Perlin-Feld liegen können. Bestehende Kacheln behalten ihr Terrain durch ihren bisherigen Seed und den Ursprung 0. Neu erzeugte automatische Wegenetze erhalten kompakte Spielfeldgruppen, geschwungene Verbindungen und zusätzliche Querverzweigungen. Alle sechs Außenseiten erhalten einen festen Eingang. Falls ein älteres Projekt Eingänge deaktiviert hatte, ergänzt die Automatik die fehlenden Feldgruppen; die Deaktivierungsoption entfällt. Gespeicherte Feldformen, Aktionen, Farben, Höhen, Objektplatzierungen und Paletten bleiben erhalten.',
+      ],
+    };
+  }
   if (
     typeof value === 'object' &&
     value !== null &&
@@ -441,16 +621,16 @@ export function migrateConfig(value: unknown): ConfigMigration {
   ) {
     const legacy = v9Schema.parse(value);
     return {
-      config: configSchema.parse({
+      config: currentConfig({
         ...legacy,
         schemaVersion: 10,
-        generatorVersion: '10.0.0',
+        generatorVersion: '10.1.0',
         editing: structuredClone(defaultConfig.editing),
         actions: structuredClone(defaultConfig.actions),
       }),
       migrated: true,
       notices: [
-        'Projekt auf Generator 10 umgestellt: Einstellungen für Center-Änderungen und gewichtetes Aktionswürfeln wurden ergänzt. Bestehende Felder, Formen, Aktionen, Farben, Höhen, Prüfregeln, Rand, Objektplatzierungen, Paletten und Modellzuordnungen bleiben unverändert. Center-Änderungen erzeugen standardmäßig keinen neuen Wegeplan. Die neuen Gewichte wirken erst beim ausdrücklichen Würfeln; vorhandene Aktionen werden nicht neu ausgewürfelt. Vorhandene Dateien bleiben unverändert.',
+        'Projekt auf Generator 12 umgestellt. Baum- und Pilzfarbprofile wurden ausgeschaltet ergänzt, damit bestehende Farben erhalten bleiben. Ein Noise-Seed aus dem vorhandenen Tile-Seed mit Ursprung 0 wird ergänzt. Einstellungen für Center-Änderungen und gewichtetes Aktionswürfeln wurden ergänzt. Bestehende Felder, Formen, Aktionen, Farben, Höhen, Prüfregeln, Rand, Objektplatzierungen, Paletten und Modellzuordnungen bleiben unverändert. Center-Änderungen erzeugen standardmäßig keinen neuen Wegeplan. Die neuen Gewichte wirken erst beim ausdrücklichen Würfeln; vorhandene Aktionen werden nicht neu ausgewürfelt. Alle sechs Außenseiten erhalten einen festen Eingang. Falls ein älteres Projekt Eingänge deaktiviert hatte, ergänzt die Automatik die fehlenden Feldgruppen; die Deaktivierungsoption entfällt. Vorhandene Dateien bleiben unverändert.',
       ],
     };
   }
@@ -462,17 +642,17 @@ export function migrateConfig(value: unknown): ConfigMigration {
   ) {
     const legacy = v8Schema.parse(value);
     return {
-      config: configSchema.parse({
+      config: currentConfig({
         ...legacy,
         schemaVersion: 10,
-        generatorVersion: '10.0.0',
+        generatorVersion: '10.1.0',
         border: structuredClone(defaultConfig.border),
         editing: structuredClone(defaultConfig.editing),
         actions: structuredClone(defaultConfig.actions),
       }),
       migrated: true,
       notices: [
-        'Projekt auf Generator 10 umgestellt: Der optionale Außenrand wurde deaktiviert ergänzt, damit die bisherige Ausgabe unverändert bleibt. Alle Felder, Formen, Aktionen, Farben, Höhen, Prüfregeln, Objektplatzierungen, Paletten und Modellzuordnungen wurden unverändert übernommen. Ein später aktivierter Rand blendet nur überlappende Objekte aus; gespeicherte Platzierungen bleiben erhalten und erscheinen nach dem Deaktivieren wieder. Die neuen Aktionsgewichte wirken erst beim ausdrücklichen Würfeln; Center-Änderungen erzeugen standardmäßig keinen neuen Wegeplan. Vorhandene Dateien bleiben unverändert.',
+        'Projekt auf Generator 12 umgestellt. Baum- und Pilzfarbprofile wurden ausgeschaltet ergänzt, damit bestehende Farben erhalten bleiben. Ein Noise-Seed aus dem vorhandenen Tile-Seed mit Ursprung 0 wird ergänzt. Ein deaktivierter optionaler Außenrand wurde ergänzt, damit die bisherige Ausgabe unverändert bleibt. Alle Felder, Formen, Aktionen, Farben, Höhen, Prüfregeln, Objektplatzierungen, Paletten und Modellzuordnungen wurden unverändert übernommen. Ein später aktivierter Rand blendet nur überlappende Objekte aus; gespeicherte Platzierungen bleiben erhalten und erscheinen nach dem Deaktivieren wieder. Die neuen Aktionsgewichte wirken erst beim ausdrücklichen Würfeln; Center-Änderungen erzeugen standardmäßig keinen neuen Wegeplan. Alle sechs Außenseiten erhalten einen festen Eingang. Falls ein älteres Projekt Eingänge deaktiviert hatte, ergänzt die Automatik die fehlenden Feldgruppen; die Deaktivierungsoption entfällt. Vorhandene Dateien bleiben unverändert.',
       ],
     };
   }
@@ -484,10 +664,10 @@ export function migrateConfig(value: unknown): ConfigMigration {
   ) {
     const legacy = value.schemaVersion === 7 ? v7Schema.parse(value) : v6Schema.parse(value);
     return {
-      config: configSchema.parse({
+      config: currentConfig({
         ...legacy,
         schemaVersion: 10,
-        generatorVersion: '10.0.0',
+        generatorVersion: '10.1.0',
         rules: structuredClone(defaultConfig.rules),
         border: structuredClone(defaultConfig.border),
         editing: structuredClone(defaultConfig.editing),
@@ -495,7 +675,7 @@ export function migrateConfig(value: unknown): ConfigMigration {
       }),
       migrated: true,
       notices: [
-        'Projekt auf Generator 10 umgestellt: Einstellbare Prüfregeln und ein deaktivierter optionaler Außenrand wurden ergänzt. Alle Felder, Aktionen, Farben, Höhen, Objektplatzierungen und Modellzuordnungen wurden unverändert übernommen. Ein später aktivierter Rand blendet überlappende Objekte nur aus und entfernt keine gespeicherten Platzierungen. Bearbeiten bleibt möglich; der Export prüft standardmäßig Mindestfläche und Verbindungen. Die neuen Aktionsgewichte wirken erst beim ausdrücklichen Würfeln; Center-Änderungen erzeugen standardmäßig keinen neuen Wegeplan. Vorhandene Dateien bleiben unverändert.',
+        'Projekt auf Generator 12 umgestellt. Baum- und Pilzfarbprofile wurden ausgeschaltet ergänzt, damit bestehende Farben erhalten bleiben. Ein Noise-Seed aus dem vorhandenen Tile-Seed mit Ursprung 0 wird ergänzt. Einstellbare Prüfregeln und ein deaktivierter optionaler Außenrand wurden ergänzt. Alle Felder, Aktionen, Farben, Höhen, Objektplatzierungen und Modellzuordnungen wurden unverändert übernommen. Ein später aktivierter Rand blendet überlappende Objekte nur aus und entfernt keine gespeicherten Platzierungen. Bearbeiten bleibt möglich; der Export prüft standardmäßig Mindestfläche und Verbindungen. Die neuen Aktionsgewichte wirken erst beim ausdrücklichen Würfeln; Center-Änderungen erzeugen standardmäßig keinen neuen Wegeplan. Alle sechs Außenseiten erhalten einen festen Eingang. Falls ein älteres Projekt Eingänge deaktiviert hatte, ergänzt die Automatik die fehlenden Feldgruppen; die Deaktivierungsoption entfällt. Vorhandene Dateien bleiben unverändert.',
       ],
     };
   }
@@ -507,10 +687,10 @@ export function migrateConfig(value: unknown): ConfigMigration {
   ) {
     const legacy = value.schemaVersion === 4 ? v4Schema.parse(value) : v5Schema.parse(value);
     return {
-      config: configSchema.parse({
+      config: currentConfig({
         ...legacy,
         schemaVersion: 10,
-        generatorVersion: '10.0.0',
+        generatorVersion: '10.1.0',
         rules: structuredClone(defaultConfig.rules),
         border: structuredClone(defaultConfig.border),
         editing: structuredClone(defaultConfig.editing),
@@ -519,7 +699,7 @@ export function migrateConfig(value: unknown): ConfigMigration {
       }),
       migrated: true,
       notices: [
-        'Projekt auf Generator 10 umgestellt: Höhenwechsel werden als Stufen mit senkrechten Wänden dargestellt. Prüfregeln und ein deaktivierter optionaler Außenrand werden ergänzt; die obsolete Rampenbreite entfällt; alle Felder, Aktionen, Farben, Höhen, Objektplatzierungen und Modellzuordnungen wurden unverändert übernommen. Ein später aktivierter Rand blendet überlappende Objekte nur aus und entfernt keine gespeicherten Platzierungen. Die neuen Aktionsgewichte wirken erst beim ausdrücklichen Würfeln; Center-Änderungen erzeugen standardmäßig keinen neuen Wegeplan. Vorhandene Dateien bleiben unverändert.',
+        'Projekt auf Generator 12 umgestellt. Baum- und Pilzfarbprofile wurden ausgeschaltet ergänzt, damit bestehende Farben erhalten bleiben. Ein Noise-Seed aus dem vorhandenen Tile-Seed mit Ursprung 0 wird ergänzt. Höhenwechsel werden als Stufen mit senkrechten Wänden dargestellt. Prüfregeln und ein deaktivierter optionaler Außenrand werden ergänzt; die obsolete Rampenbreite entfällt; alle Felder, Aktionen, Farben, Höhen, Objektplatzierungen und Modellzuordnungen wurden unverändert übernommen. Ein später aktivierter Rand blendet überlappende Objekte nur aus und entfernt keine gespeicherten Platzierungen. Die neuen Aktionsgewichte wirken erst beim ausdrücklichen Würfeln; Center-Änderungen erzeugen standardmäßig keinen neuen Wegeplan. Alle sechs Außenseiten erhalten einen festen Eingang. Falls ein älteres Projekt Eingänge deaktiviert hatte, ergänzt die Automatik die fehlenden Feldgruppen; die Deaktivierungsoption entfällt. Vorhandene Dateien bleiben unverändert.',
       ],
     };
   }
@@ -545,10 +725,10 @@ export function migrateConfig(value: unknown): ConfigMigration {
         : legacy.paths.fields.filter((field) => field.cellIds.length > 0 && field.id !== 'center')
             .length + 1;
     return {
-      config: configSchema.parse({
+      config: currentConfig({
         ...legacy,
         schemaVersion: 10,
-        generatorVersion: '10.0.0',
+        generatorVersion: '10.1.0',
         rules: structuredClone(defaultConfig.rules),
         border: structuredClone(defaultConfig.border),
         editing: structuredClone(defaultConfig.editing),
@@ -572,7 +752,7 @@ export function migrateConfig(value: unknown): ConfigMigration {
       }),
       migrated: true,
       notices: [
-        'Projekt auf Generator 10 umgestellt: Mittige Pentagon-Portale mit Landschaftsecken, feste Eingangsfelder und Stufen mit senkrechten Wänden. Wege und Platzierungen werden neu aufgebaut; Prüfregeln und ein deaktivierter optionaler Außenrand werden ergänzt. Die neuen Aktionsgewichte wirken erst beim ausdrücklichen Würfeln; Center-Änderungen erzeugen standardmäßig keinen neuen Wegeplan. Vorhandene Dateien bleiben unverändert.',
+        'Projekt auf Generator 12 umgestellt. Baum- und Pilzfarbprofile wurden ausgeschaltet ergänzt, damit bestehende Farben erhalten bleiben. Ein Noise-Seed aus dem vorhandenen Tile-Seed mit Ursprung 0 wird ergänzt. Mittige Pentagon-Portale mit Landschaftsecken, feste Eingangsfelder und Stufen mit senkrechten Wänden. Wege und Platzierungen werden neu aufgebaut; Prüfregeln und ein deaktivierter optionaler Außenrand werden ergänzt. Die neuen Aktionsgewichte wirken erst beim ausdrücklichen Würfeln; Center-Änderungen erzeugen standardmäßig keinen neuen Wegeplan. Alle sechs Außenseiten erhalten einen festen Eingang. Falls ein älteres Projekt Eingänge deaktiviert hatte, ergänzt die Automatik die fehlenden Feldgruppen; die Deaktivierungsoption entfällt. Vorhandene Dateien bleiben unverändert.',
       ],
     };
   }

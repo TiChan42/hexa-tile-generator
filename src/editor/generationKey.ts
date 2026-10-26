@@ -27,7 +27,11 @@ export function generationKey(config: TileConfig): string {
       fields: config.paths.fields.map((field) => ({ ...field, label: undefined })),
       detail: { ...config.paths.detail, centerLight: 0, edgeShade: 0 },
     },
-    decoration: { ...config.decoration, modelSlots: undefined },
+    decoration: {
+      ...config.decoration,
+      colorProfiles: defaultConfig.decoration.colorProfiles,
+      modelSlots: undefined,
+    },
     camera: defaultConfig.camera,
     export: defaultConfig.export,
     palette: [],

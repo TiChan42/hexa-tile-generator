@@ -15,9 +15,9 @@ export function generateTile(input: TileConfig): GeneratedTile {
     cells = buildGrid(config.grid, center, { portalWidth: config.center.portalWidth });
   for (const cell of cells) {
     const value = fbm(
-      config.seed,
-      (cell.rasterCenter ?? cell.center).x * config.terrain.scale,
-      (cell.rasterCenter ?? cell.center).y * config.terrain.scale,
+      config.terrain.noise.seed,
+      (config.terrain.noise.origin.x + (cell.rasterCenter ?? cell.center).x) * config.terrain.scale,
+      (config.terrain.noise.origin.y + (cell.rasterCenter ?? cell.center).y) * config.terrain.scale,
       config.terrain.octaves,
       config.terrain.persistence,
       config.terrain.lacunarity,

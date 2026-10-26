@@ -1,7 +1,13 @@
 import { Diamond, Hexagon, MousePointer2, Plus, Upload, Trash2 } from 'lucide-react';
 import type { ChangeEvent } from 'react';
 import { ACTIONS } from '../core/types';
+import { BIOME_PRESETS } from '../core/biomes';
+import type { BiomePresetId } from '../core/biomes';
 import { DECORATION_CATALOG } from '../core/objects';
+import {
+  DEFAULT_MUSHROOM_COLOR_PROFILES,
+  DEFAULT_TREE_COLOR_PROFILES,
+} from '../core/object-colors';
 import ObjectLibrary from './ObjectLibrary';
 import type { ObjectPreviewOverride } from './ObjectLibrary';
 import { builtinObjectPreviewUrl } from '../render/objectPreview';
@@ -15,6 +21,11 @@ import { Control, GradientEditor, Range, Section, Toggle } from './Controls';
 
 export type Layer = 'grid' | 'terrain' | 'paths' | 'actions' | 'objects' | 'export';
 export type Update = (change: (draft: TileConfig) => void) => void;
+function nextProfileId(prefix: string, profiles: { id: string }[]): string {
+  let suffix = 1;
+  while (profiles.some((profile) => profile.id === `${prefix}-${suffix}`)) suffix++;
+  return `${prefix}-${suffix}`;
+}
 export interface LibraryEntry {
   id: string;
   name: string;
@@ -27,6 +38,7 @@ interface Props {
   tile: GeneratedTile;
   update: Update;
   editCenter: (change: (center: TileConfig['center']) => void) => void;
+  applyBiome: (id: BiomePresetId) => void;
   selectedField?: GameField;
   setField: (value: {
     action?: ActionId;
@@ -216,23 +228,34 @@ export default function Inspector(props: Props) {
         <>
           <Section title="Landschaft" badge="02">
             <p className="section-description">Höhen aus mehrschichtigem Perlin-Rauschen.</p>
-            <div className="preset-grid">
-              {[
-                { name: 'Mooslicht', colors: ['#344c49', '#617c59', '#9ba96d', '#d6cc98'] },
-                { name: 'Abendrot', colors: ['#503b51', '#956c71', '#c18c76', '#e6c49d'] },
-                { name: 'Frostgrat', colors: ['#344b61', '#678b98', '#aac4c3', '#eceddc'] },
-              ].map((p) => (
+            <h3 className="biome-heading">Biomprofile</h3>
+            <p className="hint">
+              Farben für Gelände, Wände und Wege sowie passende Objektarten. Seed, Relief, Raster
+              und Wege bleiben erhalten; unpassende gesetzte Objekte werden entfernt. Rückgängig
+              stellt alles wieder her.
+            </p>
+            <div className="biome-preset-grid">
+              {BIOME_PRESETS.map((preset) => (
                 <button
-                  className="preset"
-                  key={p.name}
-                  onClick={() =>
-                    update((d) => {
-                      d.terrain.gradient = p.colors.map((color, i) => ({ at: i / 3, color }));
-                    })
-                  }
+                  className="biome-preset"
+                  key={preset.id}
+                  title={`${preset.summary}. Wendet Farbverläufe und Objektarten an.`}
+                  aria-label={`Biomprofil ${preset.name} anwenden`}
+                  onClick={() => props.applyBiome(preset.id)}
                 >
-                  <span style={{ background: `linear-gradient(90deg,${p.colors.join(',')})` }} />
-                  {p.name}
+                  <span className="biome-preset-swatches" aria-hidden="true">
+                    <span
+                      style={{ background: `linear-gradient(90deg,${preset.terrain.join(',')})` }}
+                    />
+                    <span
+                      style={{ background: `linear-gradient(90deg,${preset.walls.join(',')})` }}
+                    />
+                    <span
+                      style={{ background: `linear-gradient(90deg,${preset.paths.join(',')})` }}
+                    />
+                  </span>
+                  <strong>{preset.name}</strong>
+                  <small>{preset.summary}</small>
                 </button>
               ))}
             </div>
@@ -706,19 +729,9 @@ export default function Inspector(props: Props) {
             Feldern auf.
           </p>
           <Section title="Seiteneingänge">
-            <div className="side-buttons">
-              {c.paths.enabledSides.map((enabled, i) => (
-                <button
-                  key={i}
-                  aria-label={`Eingang ${i + 1}`}
-                  aria-pressed={enabled}
-                  className={enabled ? 'selected' : ''}
-                  onClick={() =>
-                    update((d) => {
-                      d.paths.enabledSides[i] = !enabled;
-                    })
-                  }
-                >
+            <div className="side-buttons" aria-label="Feste Tile-Eingänge" role="list">
+              {Array.from({ length: 6 }, (_, i) => (
+                <div key={i} role="listitem" className="side-entry selected">
                   {i + 1}
                   <small>
                     {tile.fields
@@ -727,13 +740,14 @@ export default function Inspector(props: Props) {
                       )
                       ?.label.replace('Spielfeld ', 'F') ?? '–'}
                   </small>
-                </button>
+                </div>
               ))}
             </div>
             <p className="hint">
-              Jeder Seiteneingang gehört vollständig genau einem Feld. Die übrige Außenkante bleibt
-              Landschaft; kein zweites Spielfeld darf dieselbe Kante berühren. Die mittigen
-              Eingangszellen bleiben bei gleichem Raster fest. Die Feldform dahinter ist editierbar.
+              Alle sechs Tile-Seiten haben einen festen Eingang, der genau einem Feld gehört. Die
+              übrige Außenkante bleibt Landschaft; kein zweites Spielfeld darf dieselbe Kante
+              berühren. Die mittigen Eingangszellen bleiben bei gleichem Raster fest. Die Feldform
+              dahinter ist editierbar.
             </p>
           </Section>
           <p className="inspector-rule">
@@ -1114,6 +1128,159 @@ export default function Inspector(props: Props) {
                 ))}
               </div>
             </Control>
+            <div className="object-color-profiles">
+              <Toggle
+                label="Baumkronenprofile durchwechseln"
+                checked={c.decoration.colorProfiles.trees.enabled}
+                hint="Laubfarben variieren seedbasiert; Rinde und Stamm bleiben unverändert."
+                onChange={(enabled) =>
+                  update((d) => {
+                    d.decoration.colorProfiles.trees.enabled = enabled;
+                  })
+                }
+              />
+              {c.decoration.colorProfiles.trees.enabled && (
+                <>
+                  {c.decoration.colorProfiles.trees.profiles.map((profile, profileIndex) => (
+                    <fieldset className="object-color-profile" key={profile.id}>
+                      <legend>Baumprofil {profileIndex + 1}</legend>
+                      <Control label="Profilname">
+                        <input
+                          aria-label={`Name Baumprofil ${profileIndex + 1}`}
+                          value={profile.name}
+                          maxLength={60}
+                          onChange={(event) =>
+                            update((d) => {
+                              d.decoration.colorProfiles.trees.profiles[profileIndex]!.name =
+                                event.target.value;
+                            })
+                          }
+                        />
+                      </Control>
+                      <div className="object-color-profile-colors">
+                        {(['Dunkel', 'Mittel', 'Hell'] as const).map((tone, colorIndex) => (
+                          <Control key={tone} label={`Laub ${tone.toLowerCase()}`}>
+                            <input
+                              type="color"
+                              aria-label={`Baumprofil ${profileIndex + 1}, Laub ${tone.toLowerCase()}`}
+                              value={profile.foliage[colorIndex]}
+                              onChange={(event) =>
+                                update((d) => {
+                                  d.decoration.colorProfiles.trees.profiles[profileIndex]!.foliage[
+                                    colorIndex
+                                  ] = event.target.value;
+                                })
+                              }
+                            />
+                          </Control>
+                        ))}
+                      </div>
+                      <button
+                        className="text-button danger"
+                        disabled={c.decoration.colorProfiles.trees.profiles.length <= 1}
+                        onClick={() =>
+                          update((d) => {
+                            d.decoration.colorProfiles.trees.profiles.splice(profileIndex, 1);
+                          })
+                        }
+                      >
+                        <Trash2 size={12} /> Profil entfernen
+                      </button>
+                    </fieldset>
+                  ))}
+                  <button
+                    className="button secondary full"
+                    disabled={c.decoration.colorProfiles.trees.profiles.length >= 8}
+                    onClick={() =>
+                      update((d) => {
+                        const profiles = d.decoration.colorProfiles.trees.profiles;
+                        const id = nextProfileId('tree-custom', profiles);
+                        const base = DEFAULT_TREE_COLOR_PROFILES[0]!;
+                        profiles.push({ ...structuredClone(base), id, name: 'Neues Baumprofil' });
+                      })
+                    }
+                  >
+                    <Plus size={13} /> Baumprofil hinzufügen
+                  </button>
+                </>
+              )}
+
+              <Toggle
+                label="Pilzkappen variieren"
+                checked={c.decoration.colorProfiles.mushrooms.enabled}
+                hint="Kappen wechseln zwischen Profilen; Stiele behalten ihre natürliche Farbe."
+                onChange={(enabled) =>
+                  update((d) => {
+                    d.decoration.colorProfiles.mushrooms.enabled = enabled;
+                  })
+                }
+              />
+              {c.decoration.colorProfiles.mushrooms.enabled && (
+                <>
+                  {c.decoration.colorProfiles.mushrooms.profiles.map((profile, profileIndex) => (
+                    <fieldset className="object-color-profile" key={profile.id}>
+                      <legend>Pilzprofil {profileIndex + 1}</legend>
+                      <Control label="Profilname">
+                        <input
+                          aria-label={`Name Pilzprofil ${profileIndex + 1}`}
+                          value={profile.name}
+                          maxLength={60}
+                          onChange={(event) =>
+                            update((d) => {
+                              d.decoration.colorProfiles.mushrooms.profiles[profileIndex]!.name =
+                                event.target.value;
+                            })
+                          }
+                        />
+                      </Control>
+                      <div className="object-color-profile-colors">
+                        {(['Schatten', 'Grundfarbe', 'Licht'] as const).map((tone, colorIndex) => (
+                          <Control key={tone} label={tone}>
+                            <input
+                              type="color"
+                              aria-label={`Pilzprofil ${profileIndex + 1}, ${tone}`}
+                              value={profile.cap[colorIndex]}
+                              onChange={(event) =>
+                                update((d) => {
+                                  d.decoration.colorProfiles.mushrooms.profiles[profileIndex]!.cap[
+                                    colorIndex
+                                  ] = event.target.value;
+                                })
+                              }
+                            />
+                          </Control>
+                        ))}
+                      </div>
+                      <button
+                        className="text-button danger"
+                        disabled={c.decoration.colorProfiles.mushrooms.profiles.length <= 1}
+                        onClick={() =>
+                          update((d) => {
+                            d.decoration.colorProfiles.mushrooms.profiles.splice(profileIndex, 1);
+                          })
+                        }
+                      >
+                        <Trash2 size={12} /> Profil entfernen
+                      </button>
+                    </fieldset>
+                  ))}
+                  <button
+                    className="button secondary full"
+                    disabled={c.decoration.colorProfiles.mushrooms.profiles.length >= 8}
+                    onClick={() =>
+                      update((d) => {
+                        const profiles = d.decoration.colorProfiles.mushrooms.profiles;
+                        const id = nextProfileId('mushroom-custom', profiles);
+                        const base = DEFAULT_MUSHROOM_COLOR_PROFILES[0]!;
+                        profiles.push({ ...structuredClone(base), id, name: 'Neues Pilzprofil' });
+                      })
+                    }
+                  >
+                    <Plus size={13} /> Pilzprofil hinzufügen
+                  </button>
+                </>
+              )}
+            </div>
           </Section>
           {c.decoration.placements.length > 0 && (
             <Section title="Gesetzte Objekte">

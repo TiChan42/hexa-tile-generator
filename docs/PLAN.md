@@ -36,7 +36,7 @@ Diese Punkte sind Erweiterungen, keine Voraussetzungen für den enthaltenen Edit
 - GLB-/VOX-Importer und eine interaktive Vorschau eigener Assets mit Größenanpassung.
 - Verschiebbare und skalierbare Objekt-Gizmos, freie Polygonfelder und frei definierbare Subrasterobjekte.
 - Exportpakete, die Custom-Modelle mitsamt Konfiguration und Druckvorlage enthalten.
-- Stapelerzeugung mehrerer Seeds und Validierung zusammengelegter Kacheln.
+- Validierung zusammengelegter Nachbarkacheln und gemeinsamer Übergänge.
 - Einheitlicher Software-Renderer für treiberübergreifend bitgleiche PNGs.
 - Druckbögen mit Beschnitt, Maßstab in Millimetern und DPI-Metadaten.
 
@@ -138,3 +138,25 @@ Pentagonregler erhalten standardmäßig den sichtbaren Wegeplan. Automatische Fe
 Die Schnellaktionsleiste erhält einen gemeinsamen Knopf für alle Feldaktionen einschließlich Pentagon. Dreizehn nichtnegative Gewichte und ihre normierten Chancen sind einstellbar. Würfe sind über Seed und gespeicherte Revision unabhängig pro Feld reproduzierbar und verändern nur Aktionen. Gewicht 0 schließt aus; Summe 0 bleibt als editierbarer Stand erlaubt und deaktiviert den Würfelknopf. Die bisherigen Seed-Anfangsaktionen bleiben erhalten.
 
 Schema 10 ergänzt V9 ohne Zurücksetzen von Daten um die neuen Präferenzen; ältere Migrationen und historische Autosaves bleiben erhalten. Abnahme: äußere Feldformen und Metadaten unverändert, lokale Portale gültig, manuelle Randformen geschützt, expliziter Neuaufbau, schnelle Änderungen, gewichtete Ein-Aktions-Verteilungen, Pentagon einbezogen, Nullgewichte, gemeinsame Undo-Schritte und erneutes Öffnen.
+
+## Ergänzung: Biomprofile in der Landschaftsebene
+
+Dreizehn ausdrücklich auswählbare Profile stimmen Gelände-, Wand- und Wegfarbverläufe mit passenden Objektarten und einer natürlichen Objektdichte ab. Mehrfarbige Biome verwenden zusätzliche Farbstopps; die Pilz-Kristallgrotte enthält ausschließlich Pilze, Kristalle und Bergkristalle, die Kobalthöhle nur Kristallarten. Ein Profil verändert weder Seed, Relief noch Raster und Wege. Nicht passende manuelle Objektarten werden entfernt; Anwenden ist ein einzelner Undo-Schritt. Die ausgewählten Verläufe, Objektarten und Platzierungen liegen in bestehenden Konfigurationsfeldern, daher ändert sich weder das Versionsschema noch die bisherige Seed-Ausgabe.
+
+## Aktualisierung: Generator 10.1 – kompakte Felder und verzweigte Wege
+
+Automatische Spielfelder wachsen jetzt zuerst zu zusammenhängenden, kompakten Gruppen. Die Verbindungswege werden danach geplant, damit sie nicht die Grundform der Spielfelder zu dünnen Korridoren ziehen. Seedabhängig erhalten zwei bis vier Pentagonseiten Portale; nicht benutzte Seiten bleiben Landschaft. Manuelle, bereits gespeicherte Portalformen bleiben unangetastet. Alle sechs Außenseiten haben feste, vollständig erreichbare Eingänge. Die Version 10.1.0 markiert diese neue reproduzierbare Generatorsemantik; Schema 10 bleibt unverändert. V10.0 wird streng validiert, frühere deaktivierte Außeneingänge werden aktiviert, und gespeicherte Formen bleiben erhalten.
+
+## Aktualisierung: Generator 11 – Bulk-Spielbrett
+
+Der neue Bulk-Modus erzeugt aus einem Seed ein Hex-Spielbrett mit bis zu 49 einzeln editierbaren Tiles. Reihen und Spalten sind einstellbar. Der Serienviewer zeigt die Anordnung als 2D-Draufsicht mit Flächenfarben und Feldkonturen oder als orbitierbares 3D-Brett in einem gemeinsamen Renderer. Das Standard-Biomprofil wählt pro Tile ein zufälliges Biom und variiert seine Farben, Objektarten und Dichte reproduzierbar. Alternativ lässt sich ein Biom für alle Tiles festlegen. Optional teilen die Tiles einen Welt-Noise-Seed, gemeinsame Terrainparameter und Weltkoordinaten im Hexgitter, damit Höhen- und Materialrauschen an den Nachbarkanten kontinuierlich bleiben. Raster und Tile-Rand lassen sich optional serienweit vereinheitlichen; solche Änderungen werden im normalen Einzelkachel-Editor zurück in die Serie synchronisiert.
+
+Tile-Reihenfolge und Shuffle-Revision sind Teil eines separaten `BulkProject`-Formats der Version 3. Version-1- und Version-2-Serien werden streng validiert und mit ihren bestehenden Tile-Rezepten migriert. Neu anordnen ist seedbasiert reproduzierbar und verschiebt bei aktivem durchgehendem Noise auch die Weltursprünge. Einzelkachel-Autosave und Bulk-Serienspeicherung bleiben getrennt. Alle PNGs einer Serie werden über die bestehende Regelprüfung und lokale Working-API einzeln gespeichert. Schema 11 ergänzt pro Tile `terrain.noise.seed` und `terrain.noise.origin`; Schema 12 ergänzt Objektfarbprofile.
+
+Generator 11.1 führt für neue automatische Wege einen seedabhängigen Routenbogen und bis zu drei zusätzliche Querverbindungen ein. Felder bleiben als zusammenhängende Flächencluster aufgebaut. Alle sechs Außeneingänge, vollständige Mittigkeit, Pentagon-Ecken als Landschaft sowie die Mindestfläche bleiben harte geometrische Regeln. Generator 11.0 wird beim Laden gegen sein striktes Schema geprüft; manuelle gespeicherte Feldformen werden erhalten.
+
+## Aktualisierung: Generator 12 – Objektfarbprofile
+
+Schema 12 ergänzt für Baumlaub und Pilzkappen jeweils bis zu acht benennbare Profile mit drei Farben für Schatten, Grundfarbe und Licht. Die Profilvariante wird pro Objekt mit einem unabhängigen Seed-Bereich gewählt, sodass sie weder andere Zufallsdomänen noch Geometrie oder Objektplatzierung verändert. Stämme, Äste und Pilzstiele behalten ihre eingebauten Modellfarben; andere Arten und eigene Modelle bleiben ohne Rollenpalette unberührt. Neue Projekte nutzen die Standardprofile. Migrationen aus Schema 11 ergänzen dieselben Profile ausgeschaltet, damit das bisherige Aussehen erhalten bleibt. `BulkProject` wird auf Version 3 angehoben und migriert Tile-Konfigurationen über die Einzelkachel-Migration. Der Einzelkachel-Autosave nutzt den Schlüssel `hexa-studio-project-v12`.
+
+Der Bulk-Export lädt die gewählten Kameraansichten als ZIP herunter. Standardmäßig enthält es nur Draufsicht-PNGs direkt im Archiv. Mehrere Ansichten werden pro Tile in getrennten Unterordnern gespeichert. Die 3D-Ausgabe nutzt den gespeicherten Orbitwinkel; die Perspektive bleibt zentriert von oben. Auflösung und Transparenz folgen der jeweiligen Tile-Konfiguration. Die bestehende Einzelablage der PNGs im Working-Ordner bleibt separat verfügbar.

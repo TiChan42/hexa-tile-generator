@@ -5,6 +5,7 @@ export function interactionKey(config: TileConfig): string {
   return JSON.stringify([
     config.seed,
     [config.grid.kind, config.grid.divisions, config.grid.subDivisions],
+    config.terrain.noise,
     config.center,
     [
       config.terrain.scale,

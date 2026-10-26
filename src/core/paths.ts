@@ -64,16 +64,14 @@ export function buildPaths(
       area: polygonArea(centerPolygon),
     },
   ];
-  const entrances: Entrance[] = buildEntranceFootprints(config.grid)
-    .filter((entry) => config.paths.enabledSides[entry.side])
-    .map((entry) => ({
-      side: entry.side,
-      cellIds: entry.mouthIds,
-      footprintCellIds: entry.cellIds,
-      center: entry.center,
-      widthCells: entry.widthCells,
-      fieldId: null,
-    }));
+  const entrances: Entrance[] = buildEntranceFootprints(config.grid).map((entry) => ({
+    side: entry.side,
+    cellIds: entry.mouthIds,
+    footprintCellIds: entry.cellIds,
+    center: entry.center,
+    widthCells: entry.widthCells,
+    fieldId: null,
+  }));
   const touching = centralSideCells(cells, centerPolygon),
     clusters: FieldCluster[] = [],
     occupied = new Map<string, string>();
@@ -204,10 +202,6 @@ export function buildPaths(
     fields.every((field) => field.cellIds.every((id) => reached.has(id))) &&
     (!config.paths.enabled ||
       entrances.every((entrance) => entrance.cellIds.every((id) => reached.has(id))));
-  if (config.paths.enabled && !entrances.length)
-    warnings.push(
-      'Alle sechs Eingänge sind deaktiviert. Das Gebiet ist nicht an Nachbarkacheln anschließbar.',
-    );
   if (centerEdit?.cellIds.length)
     warnings.push(
       'Die Form des Zentrums ist fest reserviert; manuelle Zentrum-Rasterstücke werden ignoriert.',
@@ -215,6 +209,8 @@ export function buildPaths(
   for (const entrance of entrances) {
     const owners = new Set(entrance.cellIds.map((id) => map.get(id)!.fieldId ?? null));
     entrance.fieldId = owners.size === 1 ? [...owners][0]! : null;
+    if (entrance.fieldId === null)
+      warnings.push(`Außeneingang ${entrance.side + 1} braucht genau ein Spielfeld als Besitzer.`);
   }
   if (config.paths.enabled && !config.paths.auto && fields.length !== config.paths.fieldCount)
     warnings.push(

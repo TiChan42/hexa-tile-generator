@@ -3,7 +3,9 @@ import { generateTile } from './generate';
 import { placementOffset } from './subgrid';
 import { hash32, randomAt } from './random';
 import { evaluateTileRules } from './rules';
+import { applyBiomePreset, BIOME_PRESETS, randomizeBiomePreset } from './biomes';
 import type { ActionId, DecorationKind, GradientStop, TileConfig } from './types';
+import type { BiomePresetId } from './biomes';
 
 const THEMES = [
   {
@@ -81,6 +83,15 @@ export interface SeededProjectOptions {
   grid?: TileConfig['grid'];
   heightMode?: TileConfig['paths']['heightMode'];
   centerPortalWidth?: number;
+  /** Shared height/material profile for a continuous bulk terrain. */
+  terrainProfile?: Omit<TileConfig['terrain'], 'noise'>;
+  noise?: TileConfig['terrain']['noise'];
+  biome?: {
+    id: BiomePresetId;
+    mode: 'random' | 'fixed';
+    variationSeed: string;
+    continuousNoise: boolean;
+  };
 }
 
 /** Complete, versioned recipe. Current editor settings never leak into generated content. */
@@ -92,8 +103,9 @@ export function createSeededProject(seed: string, options: SeededProjectOptions 
     values[Math.floor(r(key) * values.length)];
   const theme = pick('theme', THEMES);
   const fieldCount = options.fieldCount ?? pick('field-count', [9, 11, 13, 15]);
-  const config = structuredClone(defaultConfig);
+  let config = structuredClone(defaultConfig);
   config.seed = seed;
+  config.terrain.noise = structuredClone(options.noise ?? { seed, origin: { x: 0, y: 0 } });
   config.rules = structuredClone(options.rules ?? defaultConfig.rules);
   config.border = structuredClone(options.border ?? defaultConfig.border);
   config.editing = structuredClone(options.editing ?? defaultConfig.editing);
@@ -133,6 +145,12 @@ export function createSeededProject(seed: string, options: SeededProjectOptions 
     gradient: stops(theme.terrain),
     wallGradient: stops(theme.walls),
   };
+  if (options.terrainProfile) {
+    config.terrain = {
+      ...structuredClone(options.terrainProfile),
+      noise: structuredClone(options.noise ?? { seed, origin: { x: 0, y: 0 } }),
+    };
+  }
   const nominalCellArea =
     (config.grid.kind === 'hex' ? (3 * Math.sqrt(3)) / 2 : (1.7 ** 2 * Math.sqrt(3)) / 2) /
     config.grid.divisions ** 2;
@@ -157,8 +175,24 @@ export function createSeededProject(seed: string, options: SeededProjectOptions 
     density: between('density', 0.45, 0.8),
     maxPerCell: pick('objects-per-cell', [3, 4, 5, 6]),
     species: [...theme.species],
+    colorProfiles: structuredClone(defaultConfig.decoration.colorProfiles),
     placements: [],
   };
+  if (options.biome)
+    config =
+      options.biome.mode === 'random'
+        ? randomizeBiomePreset(
+            config,
+            options.biome.id,
+            options.biome.variationSeed,
+            options.biome.continuousNoise,
+          )
+        : (() => {
+            const draft = applyBiomePreset(config, options.biome.id);
+            const name = BIOME_PRESETS.find((preset) => preset.id === options.biome!.id)!.name;
+            draft.name = `${name} ${hash32(seed).toString(36).slice(0, 4).toUpperCase()}`;
+            return draft;
+          })();
   config.export = structuredClone(options.export ?? defaultConfig.export);
   config.camera = structuredClone(options.camera ?? defaultConfig.camera);
   configSchema.parse(config);

@@ -1,14 +1,17 @@
 import type { GeneratedTile, TileConfig } from '../core/types';
 import type { SeededProjectOptions } from '../core/project';
+import type { BulkGenerationOptions, BulkProject } from '../core/bulk';
 export type EngineInput =
   | { kind: 'tile'; key: string; config: TileConfig }
-  | { kind: 'project'; seed: string; options: SeededProjectOptions };
+  | { kind: 'project'; seed: string; options: SeededProjectOptions }
+  | { kind: 'bulk'; options: BulkGenerationOptions };
 export interface EngineRequest {
   id: number;
   input: EngineInput;
 }
 export type EngineOutput =
   | { kind: 'tile'; key: string; tile: GeneratedTile; elapsedMs: number }
-  | { kind: 'project'; key: string; config: TileConfig; tile: GeneratedTile; elapsedMs: number };
+  | { kind: 'project'; key: string; config: TileConfig; tile: GeneratedTile; elapsedMs: number }
+  | { kind: 'bulk'; project: BulkProject; elapsedMs: number };
 export type EngineReply =
   { id: number; ok: true; output: EngineOutput } | { id: number; ok: false; error: string };

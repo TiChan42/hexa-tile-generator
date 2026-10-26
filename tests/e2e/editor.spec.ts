@@ -405,7 +405,7 @@ test('legacy browser projects migrate with an explicit notice and keep their pre
     legacy,
   );
   await page.goto('/');
-  await expect(page.getByRole('status')).toContainText('Projekt auf Generator 10 umgestellt');
+  await expect(page.getByRole('status')).toContainText('Projekt auf Generator 10.1 umgestellt');
   const migrated = await project(page);
   expect(migrated.schemaVersion).toBe(10);
   expect(migrated.center.shape).toBe('regular');
@@ -519,7 +519,7 @@ for (const version of [4, 5, 6, 7, 8, 9] as const) {
       value: legacy,
     });
     await page.goto('/');
-    await expect(page.getByRole('status')).toContainText('Projekt auf Generator 10 umgestellt');
+    await expect(page.getByRole('status')).toContainText('Projekt auf Generator 10.1 umgestellt');
     expect(await project(page)).toEqual(expected);
     expect(await page.evaluate((key) => JSON.parse(localStorage.getItem(key)!), key)).toEqual(
       legacy,

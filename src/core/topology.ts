@@ -22,6 +22,29 @@ function lineDistance(point: Point, a: Point, b: Point): number {
   const t = d2 ? Math.max(0, Math.min(1, ((point.x - a.x) * dx + (point.y - a.y) * dy) / d2)) : 0;
   return distance(point, { x: a.x + t * dx, y: a.y + t * dy });
 }
+function routeGuideDistance(point: Point, a: Point, b: Point, seed: string): number {
+  const from = a.x < b.x || (a.x === b.x && a.y <= b.y) ? a : b;
+  const to = from === a ? b : a;
+  const dx = to.x - from.x,
+    dy = to.y - from.y,
+    length = Math.hypot(dx, dy) || 1,
+    bend =
+      (randomAt(
+        seed,
+        'topology-v11.1-route-bend',
+        from.x.toFixed(3),
+        from.y.toFixed(3),
+        to.x.toFixed(3),
+        to.y.toFixed(3),
+      ) -
+        0.5) *
+      Math.min(0.52, length * 0.34),
+    control = {
+      x: (from.x + to.x) / 2 - (dy / length) * bend,
+      y: (from.y + to.y) / 2 + (dx / length) * bend,
+    };
+  return Math.min(lineDistance(point, from, control), lineDistance(point, control, to));
+}
 function route(
   starts: Iterable<string>,
   goals: Set<string>,
@@ -59,9 +82,9 @@ function route(
         next =
           best +
           1 +
-          lineDistance(cell.center, a, b) * 8 +
+          routeGuideDistance(cell.center, a, b, seed) * 8 +
           Math.abs(cell.baseHeight - cells.get(current)!.baseHeight) * 2 +
-          randomAt(seed, 'lane-route', id) * 0.15;
+          randomAt(seed, 'topology-v11.1-lane-route', id) * 0.24;
       if (next < (costs.get(id) ?? Infinity)) {
         costs.set(id, next);
         previous.set(id, current);
@@ -90,7 +113,7 @@ function components(ids: Set<string>, cells: Map<string, TileCell>): Set<string>
   return output;
 }
 
-/** Embed an explicit radial lane graph; leave terrain buffers between unrelated fields. */
+/** Grow compact field clusters first, then link the rim and selected center portals. */
 function topologyAttempt(
   config: TileConfig,
   cells: TileCell[],
@@ -154,9 +177,20 @@ function topologyAttempt(
         inner = Math.min(0.23, d * 0.42),
         outer = Math.max(inner, d - 0.09),
         t = last ? step / last : 1;
+      const phase = randomAt(config.seed, 'topology-v11.1-lane-phase', lane) * Math.PI * 2;
+      const offset =
+        Math.sin(Math.PI * t) *
+        (Math.sin(t * Math.PI * 2 + phase) * Math.min(0.18, d * 0.15) +
+          Math.sin(t * Math.PI * 4 - phase * 0.7) * Math.min(0.07, d * 0.06) +
+          (randomAt(config.seed, 'topology-v11.1-lane-warp', lane, step) - 0.5) * 0.08);
+      const radialT =
+        t +
+        Math.sin(Math.PI * t) *
+          (randomAt(config.seed, 'topology-v11.1-radial-warp', lane, step) - 0.5) *
+          0.14;
       const point = {
-        x: center.x + ux * (inner + (outer - inner) * t),
-        y: center.y + uy * (inner + (outer - inner) * t),
+        x: center.x + ux * (inner + (outer - inner) * radialT) - uy * offset,
+        y: center.y + uy * (inner + (outer - inner) * radialT) + ux * offset,
       };
       const base = step === last ? `auto:entrance:${lane}` : `auto:lane:${lane}:${step}`;
       const node: Node = {
@@ -207,6 +241,37 @@ function topologyAttempt(
   lanes.forEach((lane) => {
     for (let i = 1; i < lane.length; i++) allow(lane[i - 1]!, lane[i]!, true);
   });
+  if (config.paths.loop) {
+    const braidCount = 1 + Math.floor(randomAt(config.seed, 'topology-v11.1-braid-count') * 3);
+    const firstLane = Math.floor(randomAt(config.seed, 'topology-v11.1-braid-start') * 6);
+    const linked = new Set<string>();
+    for (let branch = 0; branch < braidCount; branch++) {
+      const laneIndex = (firstLane + branch * 2 + 1) % 6;
+      const firstLaneNodes = lanes[laneIndex]!;
+      const secondLaneNodes = lanes[(laneIndex + 1) % 6]!;
+      const radialFraction =
+        0.28 + randomAt(config.seed, 'topology-v11.1-braid-depth', branch) * 0.48;
+      const firstNode =
+        firstLaneNodes[
+          Math.min(
+            firstLaneNodes.length - 1,
+            Math.round((firstLaneNodes.length - 1) * radialFraction),
+          )
+        ]!;
+      const secondNode =
+        secondLaneNodes[
+          Math.min(
+            secondLaneNodes.length - 1,
+            Math.round((secondLaneNodes.length - 1) * (1 - radialFraction * 0.3)),
+          )
+        ]!;
+      const key = pair(firstNode.id, secondNode.id);
+      if (firstNode !== secondNode && !linked.has(key)) {
+        allow(firstNode, secondNode, true);
+        linked.add(key);
+      }
+    }
+  }
   for (const entrance of entrances) {
     const node = lanes[entrance.side]!.at(-1)!;
     for (const id of entrance.footprintCellIds) {
@@ -231,13 +296,26 @@ function topologyAttempt(
       ry = root.point.y - center.y;
     return 1 - (x * rx + y * ry) / (Math.hypot(x, y) * Math.hypot(rx, ry));
   };
-  const unownedSides = sideCells
+  const ownedSides = sideCells
     .map((ids, side) => ({ ids, side }))
-    .filter((item) => ![...item.ids].every((id) => occupied.has(id)))
+    .filter((item) => item.ids.size > 0 && [...item.ids].every((id) => occupied.has(id)))
     .map((item) => item.side);
   const freeRoots = roots.filter((root) => !root.group.locked && !root.group.fixed),
+    candidates = sideCells
+      .map((ids, side) => ({ ids, side }))
+      .filter((item) => item.ids.size > 0 && !ownedSides.includes(item.side))
+      .sort(
+        (a, b) =>
+          randomAt(config.seed, 'topology-v10.1-center-side', a.side) -
+            randomAt(config.seed, 'topology-v10.1-center-side', b.side) || a.side - b.side,
+      ),
+    desiredPortals = 2 + Math.floor(randomAt(config.seed, 'topology-v10.1-center-count') * 3),
+    unownedSides = candidates
+      .slice(0, Math.min(Math.max(0, desiredPortals - ownedSides.length), freeRoots.length))
+      .map((item) => item.side),
+    selectedSides = new Set([...ownedSides, ...unownedSides]),
     portAssignments = new Map<number, Node>();
-  if (freeRoots.length >= unownedSides.length) {
+  if (unownedSides.length) {
     let best = Infinity,
       bestNodes: Node[] = [];
     const assign = (at: number, chosen: Node[], score: number): void => {
@@ -253,15 +331,9 @@ function topologyAttempt(
     };
     assign(0, [], 0);
     unownedSides.forEach((side, index) => portAssignments.set(side, bestNodes[index]!));
-  } else if (freeRoots.length) {
-    for (const side of unownedSides)
-      portAssignments.set(
-        side,
-        [...freeRoots].sort((a, b) => angularCost(a, side) - angularCost(b, side))[0]!,
-      );
   }
   sideCells.forEach((ids, side) => {
-    if ([...ids].every((id) => occupied.has(id))) return;
+    if (!selectedSides.has(side) || [...ids].every((id) => occupied.has(id))) return;
 
     const candidates = roots.filter(
       (root) => !root.group.locked && !root.group.fixed && !usedRoots.has(root),
@@ -347,6 +419,26 @@ function topologyAttempt(
         occupied.set(id, node.id);
       }
   };
+  const growCompactGroups = (): void => {
+    for (let round = 0; round < cells.length; round++) {
+      let progress = false;
+      for (const node of nodes)
+        if (
+          !node.group.locked &&
+          node.group.ids.size &&
+          fieldArea(node.group.ids, map) + 1e-10 < MIN_FIELD_AREA
+        ) {
+          const candidate = compactCandidate(node.group, occupied, map, config.seed, (id) =>
+            canClaim(node, id),
+          );
+          if (candidate) {
+            claim(node, [candidate]);
+            progress = true;
+          }
+        }
+      if (!progress) break;
+    }
+  };
   for (const node of nodes)
     if (!node.group.ids.size && !node.group.locked) {
       const candidate = cells
@@ -358,6 +450,9 @@ function topologyAttempt(
         )[0];
       if (candidate) claim(node, [candidate.id]);
     }
+  // Seed each field as a compact patch before routing between them. This keeps a lane connection
+  // from becoming the thin stem that determines the whole field's shape.
+  growCompactGroups();
   for (const node of nodes)
     if (!node.group.locked && node.group.ids.size) {
       for (let i = 0; i < cells.length; i++) {
@@ -428,25 +523,7 @@ function topologyAttempt(
     return adjacent(a, b);
   };
   for (const { a, b } of required) connect(a, b);
-
-  for (let round = 0; round < cells.length; round++) {
-    let progress = false;
-    for (const node of nodes)
-      if (
-        !node.group.locked &&
-        node.group.ids.size &&
-        fieldArea(node.group.ids, map) + 1e-10 < MIN_FIELD_AREA
-      ) {
-        const candidate = compactCandidate(node.group, occupied, map, config.seed, (id) =>
-          canClaim(node, id),
-        );
-        if (candidate) {
-          claim(node, [candidate]);
-          progress = true;
-        }
-      }
-    if (!progress) break;
-  }
+  growCompactGroups();
   // A dense layout may need an explicit local cross-junction rather than losing a whole field.
   const actualNeighbors = (owner: string): Set<string> =>
     new Set(

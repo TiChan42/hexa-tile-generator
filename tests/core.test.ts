@@ -171,16 +171,18 @@ describe('versioned deterministic generator', () => {
     expect(tile.stats.connected).toBe(false);
     expect(tile.warnings.length).toBeGreaterThanOrEqual(3);
   });
-  it('supports disabled routes, a single entrance, no entrances, and optional loops', () => {
+  it('requires all six outer entrances and supports optional loops', () => {
     const c = config();
     c.paths.enabled = false;
     expect(generateTile(c).fields).toHaveLength(1);
     c.paths.enabled = true;
     c.paths.loop = false;
     c.paths.enabledSides = [true, false, false, false, false, false];
-    expect(generateTile(c).stats.connected).toBe(true);
+    expect(configSchema.safeParse(c).success).toBe(false);
     c.paths.enabledSides = Array.from({ length: 6 }, () => false);
-    expect(generateTile(c).warnings.some((s) => s.includes('Alle sechs'))).toBe(true);
+    expect(configSchema.safeParse(c).success).toBe(false);
+    c.paths.enabledSides = Array.from({ length: 6 }, () => true);
+    expect(generateTile(c).entrances).toHaveLength(6);
     c.paths.fields = [{ id: 'center', cellIds: ['ignored'], action: 'event' }];
     expect(generateTile(c).warnings.some((s) => s.includes('Zentrum-Rasterstücke'))).toBe(true);
   });

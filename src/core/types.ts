@@ -41,9 +41,19 @@ export interface DecorationPlacement {
   scale: number;
   rotation: number;
 }
+export interface TreeColorProfile {
+  id: string;
+  name: string;
+  foliage: [string, string, string];
+}
+export interface MushroomColorProfile {
+  id: string;
+  name: string;
+  cap: [string, string, string];
+}
 export interface TileConfig {
-  schemaVersion: 10;
-  generatorVersion: '10.0.0';
+  schemaVersion: 12;
+  generatorVersion: '12.0.0';
   name: string;
   seed: string;
   editing: { regeneratePathsOnCenterChange: boolean };
@@ -68,6 +78,7 @@ export interface TileConfig {
     showSubgrid: boolean;
   };
   terrain: {
+    noise: { seed: string; origin: Point };
     scale: number;
     octaves: number;
     persistence: number;
@@ -98,6 +109,7 @@ export interface TileConfig {
   paths: {
     enabled: boolean;
     auto: boolean;
+    /** Kept for historical JSON compatibility; current configurations require all six true. */
     enabledSides: boolean[];
     loop: boolean;
     fieldSize: number;
@@ -113,6 +125,10 @@ export interface TileConfig {
     density: number;
     maxPerCell: number;
     species: DecorationKind[];
+    colorProfiles: {
+      trees: { enabled: boolean; profiles: TreeColorProfile[] };
+      mushrooms: { enabled: boolean; profiles: MushroomColorProfile[] };
+    };
     /** Distribution to restore when a frozen seed layout is rebuilt structurally. */
     sourceDensity?: number;
     placements: DecorationPlacement[];

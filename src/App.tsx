@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent } from 'react';
+import { createPortal } from 'react-dom';
 import {
   ArrowDownToLine,
   ArrowUpRight,
@@ -40,18 +41,27 @@ import {
   getExportRuleIssues,
   prepareCenterEdit,
   rollFieldActions,
+  applyBiomePreset,
+  BIOME_PRESETS,
+  shuffleBulkProject,
+  syncBulkTile,
 } from './core';
 import { ZodError } from 'zod';
 import { DECORATION_CATALOG } from './core/objects';
 import { builtinObjectPreviewUrl, voxelPreviewUrl } from './render/objectPreview';
-import type { ActionId, DecorationKind, Point } from './core/types';
+import type { ActionId, DecorationKind, GeneratedTile, Point, TileConfig } from './core/types';
+import type { BulkProject } from './core';
+import type { BiomePresetId } from './core/biomes';
 import type { TileRenderer } from './render';
 import Inspector from './components/Inspector';
 import type { Layer, LibraryEntry } from './components/Inspector';
 import Viewport from './components/Viewport';
 import QuickActions from './components/QuickActions';
+import BulkWorkspace from './components/BulkWorkspace';
 import { useProject } from './useProject';
 import { useTile } from './useTile';
+import { loadStoredBulkProject, saveStoredBulkProject } from './editor/bulkStorage';
+import { archiveTilePath, PngArchiveWriter, type BulkExportView } from './editor/bulkArchive';
 
 const LAYERS = [
   { id: 'grid' as const, title: 'Raster', subtitle: 'Die Grundlage', icon: Grid3X3 },
@@ -103,6 +113,7 @@ export default function App() {
     config,
     update,
     replace,
+    load,
     undo,
     redo,
     canUndo,
@@ -118,8 +129,27 @@ export default function App() {
     pending: generationPending,
     error: generationError,
     buildProject,
+    buildBulkProject,
     validateTile,
   } = useTile(config);
+  const [bulkProject, setBulkProject] = useState(() => {
+    try {
+      return loadStoredBulkProject(localStorage);
+    } catch {
+      return loadStoredBulkProject(null);
+    }
+  });
+  const [workspaceMode, setWorkspaceMode] = useState<'tile' | 'bulk'>(() =>
+    bulkProject ? 'bulk' : 'tile',
+  );
+  const [activeBulkTileId, setActiveBulkTileId] = useState<string | null>(null);
+  const [bulkGenerating, setBulkGenerating] = useState(false);
+  const [bulkMessage, setBulkMessage] = useState<{ text: string; error: boolean } | null>(null);
+  const [bulkExportProgress, setBulkExportProgress] = useState<{
+    done: number;
+    total: number;
+    mode: 'zip' | 'working';
+  } | null>(null);
   const [layer, setLayer] = useState<Layer>('grid');
   const [selection, setSelection] = useState<string[]>([]);
   const [fieldId, setFieldId] = useState<string>('center');
@@ -134,6 +164,17 @@ export default function App() {
   useEffect(() => {
     currentConfig.current = config;
   }, [config]);
+  useEffect(() => {
+    if (workspaceMode !== 'tile' || !activeBulkTileId) return;
+    if (!bulkProject) return;
+    const tileConfig = bulkProject.tiles.find((tile) => tile.id === activeBulkTileId)?.config;
+    if (!tileConfig || JSON.stringify(tileConfig) === JSON.stringify(config)) return;
+    saveStoredBulkProject(localStorage, syncBulkTile(bulkProject, activeBulkTileId, config));
+  }, [config, workspaceMode, activeBulkTileId, bulkProject]);
+  useEffect(() => {
+    if (!bulkProject) return;
+    saveStoredBulkProject(localStorage, bulkProject);
+  }, [bulkProject]);
   const [loadedModels, setLoadedModels] = useState<Set<string>>(
     () => new Set(BUILTINS.map((m) => m.id)),
   );
@@ -485,6 +526,21 @@ export default function App() {
       );
     }
   };
+  const applyBiome = (id: BiomePresetId) => {
+    if (busy || !editable) return;
+    try {
+      const next = applyBiomePreset(config, id);
+      replace(next);
+      notify(
+        `Biomprofil „${BIOME_PRESETS.find((preset) => preset.id === id)!.name}“ angewendet. Unpassende Objektplatzierungen wurden entfernt; Rückgängig stellt sie wieder her.`,
+      );
+    } catch (error) {
+      notify(
+        error instanceof Error ? error.message : 'Das Biomprofil konnte nicht angewendet werden.',
+        true,
+      );
+    }
+  };
   const generateProject = async (seed: string) => {
     if (busy) return;
     setBusy(true);
@@ -692,9 +748,193 @@ export default function App() {
       notify(error instanceof Error ? error.message : 'Laden fehlgeschlagen.', true);
     }
   };
+  const generateBulk = async (options: Parameters<typeof buildBulkProject>[0]) => {
+    if (busy || bulkGenerating) return;
+    setBulkGenerating(true);
+    setBulkMessage(null);
+    try {
+      const project = await buildBulkProject(options);
+      setBulkProject(project);
+      setActiveBulkTileId(null);
+      setWorkspaceMode('bulk');
+      const message = `${project.tiles.length} Kacheln aus Seed „${project.seed}“ erstellt.`;
+      setBulkMessage({ text: message, error: false });
+      notify(message);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Bulk-Serie konnte nicht erzeugt werden.';
+      setBulkMessage({ text: message, error: true });
+      notify(message, true);
+    } finally {
+      setBulkGenerating(false);
+    }
+  };
+  const loadBulkPreviews = async (project: BulkProject): Promise<Record<string, GeneratedTile>> => {
+    const previews = await Promise.all(
+      project.order.map(async (id) => {
+        const item = project.tiles.find((tile) => tile.id === id);
+        if (!item) throw new Error(`Tile ${id} fehlt in der Serie.`);
+        return [id, await validateTile(item.config)] as const;
+      }),
+    );
+    return Object.fromEntries(previews);
+  };
+  const editBulkTile = (id: string, candidate: TileConfig) => {
+    load(candidate);
+    setActiveBulkTileId(id);
+    setWorkspaceMode('tile');
+    setSelection([]);
+    setPlacing(null);
+    setEditingFieldId(null);
+    setFieldId('center');
+    setSelectedObject(null);
+  };
+  const returnToBulk = () => {
+    if (activeBulkTileId && bulkProject)
+      setBulkProject(syncBulkTile(bulkProject, activeBulkTileId, config));
+    setWorkspaceMode('bulk');
+    setActiveBulkTileId(null);
+    cancelPlacement();
+  };
+  const prepareBulkTiles = async (source: BulkProject) => {
+    const ordered = source.order.map((id) => source.tiles.find((tile) => tile.id === id)!);
+    const prepared: { id: string; config: TileConfig; tile: GeneratedTile }[] = [];
+    const registeredSlots = new Set<string>();
+    const loadedIds = new Set(loadedModels);
+    for (const item of ordered) {
+      const generated = await validateTile(item.config);
+      const issues = getExportRuleIssues(item.config, generated);
+      if (issues.length)
+        throw new Error(`${item.config.name}: ${issues.map((issue) => issue.message).join(' ')}`);
+      for (const [kind, id] of Object.entries(item.config.decoration.modelSlots ?? {})) {
+        const slotKey = `${kind}:${id}`;
+        if (!id || registeredSlots.has(slotKey) || BUILTINS.some((entry) => entry.id === id))
+          continue;
+        const model = await readResponse<Parameters<TileRenderer['registerModel']>[0]>(
+          await fetch(`/api/models/${encodeURIComponent(id)}`),
+        );
+        renderer.current?.registerModel(model, kind as DecorationKind);
+        registeredSlots.add(slotKey);
+        loadedIds.add(model.id);
+      }
+      prepared.push({ ...item, tile: generated });
+    }
+    setLoadedModels(loadedIds);
+    return prepared;
+  };
+  const exportBulk = async () => {
+    if (!bulkProject || !renderer.current || busy || bulkExportProgress) return;
+    const source = activeBulkTileId
+      ? syncBulkTile(bulkProject, activeBulkTileId, config)
+      : bulkProject;
+    const ordered = source.order.map((id) => source.tiles.find((tile) => tile.id === id)!);
+    setBulkProject(source);
+    setBusy(true);
+    setBulkMessage(null);
+    setBulkExportProgress({ done: 0, total: ordered.length, mode: 'working' });
+    try {
+      const prepared = await prepareBulkTiles(source);
+      for (let index = 0; index < prepared.length; index++) {
+        const item = prepared[index]!;
+        if (!renderer.current) throw new Error('3D-Renderer wurde geschlossen.');
+        renderer.current.update(item.tile, item.config, []);
+        const png = await renderer.current.exportPng(
+          item.config.export.size,
+          item.config.export.transparent,
+        );
+        const result = await readResponse<{ path: string; existing: boolean }>(
+          await fetch('/api/tiles', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ config: item.config, png: await blobDataUrl(png) }),
+          }),
+        );
+        setBulkExportProgress({ done: index + 1, total: prepared.length, mode: 'working' });
+        if (index === prepared.length - 1) {
+          const message = `${prepared.length} PNGs im Working-Ordner gespeichert. Letzter Export: ${result.path}`;
+          setBulkMessage({ text: message, error: false });
+          notify(message);
+        }
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Bulk-Export fehlgeschlagen.';
+      setBulkMessage({ text: message, error: true });
+      notify(message, true);
+    } finally {
+      setBulkExportProgress(null);
+      setBusy(false);
+      const current = latestRender.current;
+      renderer.current?.update(current.tile, current.config, current.selection);
+    }
+  };
+  const exportBulkZip = async (views: BulkExportView[]) => {
+    if (!bulkProject || !renderer.current || busy || bulkExportProgress || !views.length) return;
+    const source = activeBulkTileId
+      ? syncBulkTile(bulkProject, activeBulkTileId, config)
+      : bulkProject;
+    const ordered = source.order.map((id) => source.tiles.find((tile) => tile.id === id)!);
+    const distinctViews = [...new Set(views)];
+    setBulkProject(source);
+    setBusy(true);
+    setBulkMessage(null);
+    setBulkExportProgress({ done: 0, total: ordered.length * distinctViews.length, mode: 'zip' });
+    const archiveWriter = new PngArchiveWriter();
+    try {
+      const prepared = await prepareBulkTiles(source);
+      let done = 0;
+      for (let index = 0; index < prepared.length; index++) {
+        const item = prepared[index]!;
+        for (const viewMode of distinctViews) {
+          if (!renderer.current) throw new Error('3D-Renderer wurde geschlossen.');
+          renderer.current.update(item.tile, item.config, []);
+          const view = { ...item.config.camera, mode: viewMode };
+          const png = await renderer.current.exportPng(
+            item.config.export.size,
+            item.config.export.transparent,
+            view,
+          );
+          await archiveWriter.add(
+            archiveTilePath(index, item.config.name, viewMode, distinctViews.length > 1),
+            png,
+          );
+          done++;
+          setBulkExportProgress({
+            done,
+            total: ordered.length * distinctViews.length,
+            mode: 'zip',
+          });
+        }
+      }
+      const archive = await archiveWriter.finish();
+      const seedSlug = source.seed
+        .normalize('NFKD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '');
+      downloadBlob(archive, `hexastudio-serie-${seedSlug || 'export'}.zip`);
+      const message = `${done} PNG-Ansichten als ZIP heruntergeladen.`;
+      setBulkMessage({ text: message, error: false });
+      notify(message);
+    } catch (error) {
+      archiveWriter.abort();
+      const message = error instanceof Error ? error.message : 'ZIP-Export fehlgeschlagen.';
+      setBulkMessage({ text: message, error: true });
+      notify(message, true);
+    } finally {
+      setBulkExportProgress(null);
+      setBusy(false);
+      const current = latestRender.current;
+      renderer.current?.update(current.tile, current.config, current.selection);
+    }
+  };
   const activeLayer = LAYERS.find((l) => l.id === layer)!;
   return (
-    <div className="studio-app">
+    <div
+      className="studio-app"
+      style={{ visibility: workspaceMode === 'bulk' ? 'hidden' : 'visible' }}
+      aria-hidden={workspaceMode === 'bulk'}
+    >
       <header className="app-header">
         <a className="brand" href="/" aria-label="Hexa Studio Startseite">
           <span className="brand-mark">
@@ -713,6 +953,15 @@ export default function App() {
           <span className="version-tag">EDITOR</span>
         </div>
         <div className="header-actions">
+          {workspaceMode === 'tile' && (
+            <button
+              className="subtle-button"
+              onClick={() => (activeBulkTileId ? returnToBulk() : setWorkspaceMode('bulk'))}
+            >
+              <Grid3X3 size={15} />
+              <span>{activeBulkTileId ? 'Zur Serie' : 'Bulk-Modus'}</span>
+            </button>
+          )}
           <button className="subtle-button" aria-label="Meine Tiles" onClick={openLibrary}>
             <Layers3 size={15} />
             <span>Meine Tiles</span>
@@ -784,7 +1033,7 @@ export default function App() {
             onChange={(e) => void importConfig(e)}
           />
           <div className="build-label">
-            HEXA STUDIO <span>v0.10</span>
+            HEXA STUDIO <span>v0.11</span>
           </div>
         </div>
       </nav>
@@ -805,6 +1054,7 @@ export default function App() {
           tile={tile}
           update={update}
           editCenter={editCenter}
+          applyBiome={applyBiome}
           selectedField={selectedField}
           setField={setField}
           onSelectField={(id) => {
@@ -985,6 +1235,7 @@ export default function App() {
               maxLength={128}
               onChange={(e) =>
                 update((d) => {
+                  if (d.terrain.noise.seed === d.seed) d.terrain.noise.seed = e.target.value;
                   d.seed = e.target.value;
                 })
               }
@@ -1204,6 +1455,27 @@ export default function App() {
           </div>
         </div>
       )}
+      {workspaceMode === 'bulk' &&
+        createPortal(
+          <BulkWorkspace
+            project={bulkProject}
+            template={{ grid: config.grid, border: config.border, paths: config.paths }}
+            generating={bulkGenerating}
+            message={bulkMessage}
+            exportProgress={bulkExportProgress}
+            onGenerate={(options) => void generateBulk(options)}
+            onProjectChange={setBulkProject}
+            onEdit={editBulkTile}
+            onLoadPreviews={loadBulkPreviews}
+            onShuffle={() =>
+              setBulkProject((previous) => (previous ? shuffleBulkProject(previous) : previous))
+            }
+            onExport={(views) => void exportBulkZip(views)}
+            onSaveWorking={() => void exportBulk()}
+            onBack={() => (activeBulkTileId ? returnToBulk() : setWorkspaceMode('tile'))}
+          />,
+          document.body,
+        )}
     </div>
   );
 }

@@ -161,7 +161,7 @@ describe('explicit config migration', () => {
     expect(result.migrated).toBe(true);
     expect(result.notices[0]).toContain('Generator 10');
     expect(result.config.schemaVersion).toBe(10);
-    expect(result.config.generatorVersion).toBe('10.0.0');
+    expect(result.config.generatorVersion).toBe('10.1.0');
     expect(result.config.center).toEqual({
       shape: 'regular',
       scale: 1,
@@ -341,7 +341,7 @@ describe('lossless V4/V5 migration to stepped walls', () => {
       const before = JSON.stringify(legacy);
       const migration = migrateConfig(legacy);
       expect(migration.migrated).toBe(true);
-      expect(migration.notices.join(' ')).toContain('Projekt auf Generator 10 umgestellt');
+      expect(migration.notices.join(' ')).toContain('Projekt auf Generator 10.1 umgestellt');
       expect(migration.notices.join(' ')).toContain('unverändert übernommen');
       const { transitionWidth: obsoleteWidth, ...paths } = legacy.paths;
       expect(obsoleteWidth).toBeGreaterThanOrEqual(0.01);
@@ -349,7 +349,7 @@ describe('lossless V4/V5 migration to stepped walls', () => {
         ...legacy,
         paths,
         schemaVersion: 10,
-        generatorVersion: '10.0.0',
+        generatorVersion: '10.1.0',
         editing: defaultConfig.editing,
         actions: defaultConfig.actions,
         rules: defaultConfig.rules,
@@ -537,7 +537,7 @@ it('validates obsolete ramp widths in frozen V5 before removing only that settin
       ...legacy,
       paths,
       schemaVersion: 10,
-      generatorVersion: '10.0.0',
+      generatorVersion: '10.1.0',
       editing: defaultConfig.editing,
       actions: defaultConfig.actions,
       rules: defaultConfig.rules,
@@ -600,7 +600,7 @@ it('migrates frozen V6 configurations one to one without snapshotting or resetti
   expect(source).toEqual({
     ...v6,
     schemaVersion: 10,
-    generatorVersion: '10.0.0',
+    generatorVersion: '10.1.0',
     editing: defaultConfig.editing,
     actions: defaultConfig.actions,
     rules: defaultConfig.rules,
@@ -650,14 +650,14 @@ it('migrates frozen V6 configurations one to one without snapshotting or resetti
   expect(result.config).toEqual({
     ...legacy,
     schemaVersion: 10,
-    generatorVersion: '10.0.0',
+    generatorVersion: '10.1.0',
     editing: defaultConfig.editing,
     actions: defaultConfig.actions,
     rules: defaultConfig.rules,
     border: defaultConfig.border,
   });
   expect(result.migrated).toBe(true);
-  expect(result.notices.join(' ')).toContain('Projekt auf Generator 10 umgestellt');
+  expect(result.notices.join(' ')).toContain('Projekt auf Generator 10.1 umgestellt');
   expect(result.notices.join(' ')).toContain('unverändert übernommen');
   expect(JSON.stringify(legacy)).toBe(before);
   expect(generateTile(result.config)).toEqual(generateTile(source));
@@ -720,7 +720,7 @@ it('adds only explicit default rules and new versions when migrating the frozen 
   expect(result.config).toEqual({
     ...source,
     schemaVersion: 10,
-    generatorVersion: '10.0.0',
+    generatorVersion: '10.1.0',
     editing: defaultConfig.editing,
     actions: defaultConfig.actions,
     border: defaultConfig.border,
@@ -731,7 +731,7 @@ it('adds only explicit default rules and new versions when migrating the frozen 
       exportPolicy: 'block',
     },
   });
-  expect(result.notices.join(' ')).toContain('Projekt auf Generator 10 umgestellt');
+  expect(result.notices.join(' ')).toContain('Projekt auf Generator 10.1 umgestellt');
   expect(result.notices.join(' ')).toContain('Prüfregeln');
   expect(JSON.stringify(source)).toBe(before);
   result.config.rules.minFieldArea = 0;
@@ -831,13 +831,13 @@ it('migrates V8 by adding only an inactive border and the new versions', () => {
   expect(result.config).toEqual({
     ...legacy,
     schemaVersion: 10,
-    generatorVersion: '10.0.0',
+    generatorVersion: '10.1.0',
     editing: defaultConfig.editing,
     actions: defaultConfig.actions,
     border: { enabled: false, width: 0.015, mode: 'black', color: '#000000' },
   });
   expect(result.migrated).toBe(true);
-  expect(result.notices.join(' ')).toContain('Projekt auf Generator 10 umgestellt');
+  expect(result.notices.join(' ')).toContain('Projekt auf Generator 10.1 umgestellt');
   expect(result.notices.join(' ')).toContain('gespeicherte Platzierungen bleiben erhalten');
   expect(JSON.stringify(legacy)).toBe(before);
   result.config.border.enabled = true;
@@ -873,7 +873,7 @@ it('validates every border setting strictly and excludes border from every froze
   expect(() => configSchema.parse(withoutBorder)).toThrow();
   for (const fixture of [v1, legacyV2Project(), v3, v4, v5, v6, v7, v8])
     expect(() => migrateConfig({ ...fixture, border: defaultConfig.border })).toThrow();
-  expect(() => migrateConfig({ ...v8, generatorVersion: '10.0.0' })).toThrow();
+  expect(() => migrateConfig({ ...v8, generatorVersion: '10.1.0' })).toThrow();
   expect(() => migrateConfig({ ...v8, rules: { ...v8.rules, extra: true } })).toThrow();
 });
 
@@ -935,12 +935,12 @@ it('migrates V9 by adding editing and action defaults without changing any saved
   expect(result.config).toEqual({
     ...legacy,
     schemaVersion: 10,
-    generatorVersion: '10.0.0',
+    generatorVersion: '10.1.0',
     editing: { regeneratePathsOnCenterChange: false },
     actions: defaultConfig.actions,
   });
   expect(result.migrated).toBe(true);
-  expect(result.notices.join(' ')).toContain('Projekt auf Generator 10 umgestellt');
+  expect(result.notices.join(' ')).toContain('Projekt auf Generator 10.1 umgestellt');
   expect(result.notices.join(' ')).toContain('vorhandene Aktionen werden nicht neu ausgewürfelt');
   expect(JSON.stringify(legacy)).toBe(before);
   result.config.actions.weights.rotate = 0;

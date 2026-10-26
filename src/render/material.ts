@@ -95,20 +95,22 @@ export function sampleMaterial(
   point: MaterialPoint,
   texture: MaterialTextureSettings,
   grain: number,
+  origin: { x: number; y: number } = { x: 0, y: 0 },
 ): MaterialSample {
   const domains = seeds(seed);
-  const broad = materialFbm(domains.broad, scaled(point, texture.scale), texture.octaves);
+  const worldPoint = { x: point.x + origin.x, y: point.y, z: point.z + origin.y };
+  const broad = materialFbm(domains.broad, scaled(worldPoint, texture.scale), texture.octaves);
   const detail = materialFbm(
     domains.detail,
-    scaled(point, texture.detailScale),
+    scaled(worldPoint, texture.detailScale),
     Math.max(1, Math.ceil(texture.octaves / 2)),
   );
   const pixel =
     (materialLatticeHash(
       domains.grain,
-      Math.floor(point.x * 540),
-      Math.floor(point.y * 540),
-      Math.floor(point.z * 540),
+      Math.floor(worldPoint.x * 540),
+      Math.floor(worldPoint.y * 540),
+      Math.floor(worldPoint.z * 540),
     ) /
       4294967296) *
       2 -
@@ -122,6 +124,7 @@ varying vec3 vTilePosition;
 uniform uint tileBroadSeed;
 uniform uint tileDetailSeed;
 uniform uint tileGrainSeed;
+uniform vec2 tileNoiseOrigin;
 uniform float tileTextureScale;
 uniform int tileTextureOctaves;
 uniform float tileTextureStrength;
@@ -171,7 +174,7 @@ float tileFbm(vec3 p,uint seed,int octaves) {
 `;
 
 interface MaterialUniform {
-  value: number;
+  value: number | THREE.Vector2;
 }
 const materialBindings = new WeakMap<THREE.MeshStandardMaterial, Record<string, MaterialUniform>>();
 
@@ -182,6 +185,7 @@ export function updateTileMaterial(
   grain: number,
   seed: string,
   pathDetail: { centerLight: number; edgeShade: number } = { centerLight: 0, edgeShade: 0 },
+  noiseOrigin: { x: number; y: number } = { x: 0, y: 0 },
 ): void {
   const bindings = materialBindings.get(material);
   if (!bindings) throw new Error('Material ist kein Kachelmaterial.');
@@ -190,6 +194,7 @@ export function updateTileMaterial(
     tileBroadSeed: domains.broad,
     tileDetailSeed: domains.detail,
     tileGrainSeed: domains.grain,
+    tileNoiseOrigin: new THREE.Vector2(noiseOrigin.x, noiseOrigin.y),
     tileTextureScale: texture.scale,
     tileTextureOctaves: texture.octaves,
     tileTextureStrength: texture.strength,
@@ -213,17 +218,18 @@ export function createTileMaterial(
   grain: number,
   seed: string,
   pathDetail: { centerLight: number; edgeShade: number } = { centerLight: 0, edgeShade: 0 },
+  noiseOrigin: { x: number; y: number } = { x: 0, y: 0 },
 ): THREE.MeshStandardMaterial {
   const material = new THREE.MeshStandardMaterial(parameters);
   const bindings: Record<string, MaterialUniform> = {};
   materialBindings.set(material, bindings);
-  updateTileMaterial(material, texture, grain, seed, pathDetail);
+  updateTileMaterial(material, texture, grain, seed, pathDetail, noiseOrigin);
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, bindings);
     shader.vertexShader = shader.vertexShader
       .replace(
         '#include <common>',
-        '#include <common>\nvarying vec3 vTilePosition;\nattribute float tilePathWeight;\nattribute float tileBorderDistance;\nvarying float vTilePathWeight;\nvarying float vTileBorderDistance;',
+        '#include <common>\nuniform vec2 tileNoiseOrigin;\nvarying vec3 vTilePosition;\nattribute float tilePathWeight;\nattribute float tileBorderDistance;\nvarying float vTilePathWeight;\nvarying float vTileBorderDistance;',
       )
       .replace(
         '#include <begin_vertex>',
@@ -232,7 +238,7 @@ vec4 tilePosition=vec4(transformed,1.0);
 #ifdef USE_INSTANCING
 tilePosition=instanceMatrix*tilePosition;
 #endif
-vTilePosition=(modelMatrix*tilePosition).xyz;
+vTilePosition=(modelMatrix*tilePosition).xyz+vec3(tileNoiseOrigin.x,0.0,tileNoiseOrigin.y);
 vTilePathWeight=tilePathWeight;vTileBorderDistance=tileBorderDistance;`,
       );
     shader.fragmentShader = shader.fragmentShader
@@ -251,6 +257,6 @@ vTilePathWeight=tilePathWeight;vTileBorderDistance=tileBorderDistance;`,
     `,
       );
   };
-  material.customProgramCacheKey = () => 'tile-material-gradient-perlin-v3-path-distance';
+  material.customProgramCacheKey = () => 'tile-material-gradient-perlin-v4-continuous-world-noise';
   return material;
 }

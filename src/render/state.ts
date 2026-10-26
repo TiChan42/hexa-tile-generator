@@ -45,13 +45,14 @@ export function renderGeometryKey(
       config.terrain.overhang,
       config.terrain.skirtDepth,
     ],
-    [config.decoration.enabled, config.decoration.modelSlots],
+    [config.decoration.enabled, config.decoration.modelSlots, config.decoration.colorProfiles],
     modelRevision,
   ]);
 }
 export function renderMaterialKey(config: TileConfig): string {
   return JSON.stringify([
-    config.seed,
+    config.terrain.noise.seed,
+    config.terrain.noise.origin,
     config.terrain.texture,
     config.terrain.grain,
     config.paths.detail.centerLight,

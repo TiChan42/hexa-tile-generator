@@ -5,6 +5,7 @@ import { generationKey } from './editor/generationKey';
 import { fieldEditingKey, interactionKey, presentFieldEdits } from './editor/presentation';
 import type { GeneratedTile, TileConfig } from './core/types';
 import type { SeededProjectOptions } from './core/project';
+import type { BulkGenerationOptions, BulkProject } from './core/bulk';
 
 export const EMPTY_TILE: GeneratedTile = {
   cells: [],
@@ -75,6 +76,11 @@ export function useTile(config: TileConfig) {
     if (!client) return Promise.reject(new Error('Generator startet noch.'));
     return client.project(seed, options);
   }, []);
+  const buildBulkProject = useCallback((options: BulkGenerationOptions): Promise<BulkProject> => {
+    const client = clientRef.current;
+    if (!client) return Promise.reject(new Error('Generator startet noch.'));
+    return client.bulk(options);
+  }, []);
   const validateTile = useCallback((candidate: TileConfig) => {
     const client = clientRef.current;
     if (!client) return Promise.reject(new Error('Generator startet noch.'));
@@ -101,6 +107,7 @@ export function useTile(config: TileConfig) {
     error: activeError,
     elapsedMs: result?.elapsedMs ?? 0,
     buildProject,
+    buildBulkProject,
     validateTile,
   };
 }

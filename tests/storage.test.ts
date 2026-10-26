@@ -61,9 +61,9 @@ describe('versioned browser project storage', () => {
       storage.entries.set(key, original);
       const result = loadStoredProject(storage);
       expect(result.config.schemaVersion).toBe(10);
-      expect(result.config.generatorVersion).toBe('10.0.0');
+      expect(result.config.generatorVersion).toBe('10.1.0');
       expect(result.migrated).toBe(true);
-      expect(result.notices.join(' ')).toContain('Projekt auf Generator 10 umgestellt');
+      expect(result.notices.join(' ')).toContain('Projekt auf Generator 10.1 umgestellt');
       expect(storage.entries.get(key)).toBe(original);
       expect(storage.writes).toEqual([]);
     },
@@ -109,7 +109,7 @@ describe('versioned browser project storage', () => {
     expect(loadStoredProject(storage).config).toEqual({
       ...legacy,
       schemaVersion: 10,
-      generatorVersion: '10.0.0',
+      generatorVersion: '10.1.0',
       editing: defaultConfig.editing,
       actions: defaultConfig.actions,
       rules: defaultConfig.rules,
@@ -195,7 +195,7 @@ it('loads frozen V7 autosaves without resetting manual work and writes their new
   expect(migrated.config).toEqual({
     ...legacy,
     schemaVersion: 10,
-    generatorVersion: '10.0.0',
+    generatorVersion: '10.1.0',
     editing: defaultConfig.editing,
     actions: defaultConfig.actions,
     rules: defaultConfig.rules,
@@ -245,7 +245,7 @@ it('preserves V8 rules and objects while saving border settings exclusively into
   expect(result.config).toEqual({
     ...legacy,
     schemaVersion: 10,
-    generatorVersion: '10.0.0',
+    generatorVersion: '10.1.0',
     editing: defaultConfig.editing,
     actions: defaultConfig.actions,
     border: defaultConfig.border,
@@ -281,7 +281,7 @@ it('migrates V9 preferences into V10 without replacing the historical autosave',
   expect(result.config).toEqual({
     ...legacy,
     schemaVersion: 10,
-    generatorVersion: '10.0.0',
+    generatorVersion: '10.1.0',
     editing: defaultConfig.editing,
     actions: defaultConfig.actions,
   });

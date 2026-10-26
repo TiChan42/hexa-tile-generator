@@ -1,5 +1,6 @@
 import { generateTile } from '../core/generate';
 import { createSeededProject } from '../core/project';
+import { createBulkProject } from '../core/bulk';
 import { generationKey } from './generationKey';
 import type { EngineReply, EngineRequest } from './engineProtocol';
 const worker = self as unknown as {
@@ -16,7 +17,7 @@ worker.onmessage = ({ data }) => {
         ok: true,
         output: { kind: 'tile', key: data.input.key, tile, elapsedMs: performance.now() - start },
       });
-    } else {
+    } else if (data.input.kind === 'project') {
       const config = createSeededProject(data.input.seed, data.input.options);
       const tile = generateTile(config);
       worker.postMessage({
@@ -29,6 +30,13 @@ worker.onmessage = ({ data }) => {
           tile,
           elapsedMs: performance.now() - start,
         },
+      });
+    } else {
+      const project = createBulkProject(data.input.options);
+      worker.postMessage({
+        id: data.id,
+        ok: true,
+        output: { kind: 'bulk', project, elapsedMs: performance.now() - start },
       });
     }
   } catch (error) {

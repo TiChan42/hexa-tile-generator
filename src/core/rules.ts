@@ -56,11 +56,7 @@ export function evaluateFieldShapeRules(
   );
 }
 
-function pathConnected(
-  config: TileConfig,
-  tile: GeneratedTile,
-  map: Map<string, TileCell>,
-): boolean {
+function pathConnected(tile: GeneratedTile, map: Map<string, TileCell>): boolean {
   const owners = new Map<string, string>();
   for (const field of tile.fields)
     for (const id of field.cellIds) {
@@ -78,14 +74,12 @@ function pathConnected(
         queue.push(id);
       }
   if ([...owners.keys()].some((id) => !reached.has(id))) return false;
-  for (let side = 0; side < 6; side++)
-    if (config.paths.enabledSides[side]) {
-      const entrance = tile.entrances.find((entry) => entry.side === side);
-      if (!entrance?.cellIds.length || entrance.cellIds.some((id) => !reached.has(id)))
-        return false;
-      const ids = new Set(entrance.cellIds.map((id) => owners.get(id)));
-      if (ids.size !== 1 || ids.has(undefined) || [...ids][0] !== entrance.fieldId) return false;
-    }
+  for (let side = 0; side < 6; side++) {
+    const entrance = tile.entrances.find((entry) => entry.side === side);
+    if (!entrance?.cellIds.length || entrance.cellIds.some((id) => !reached.has(id))) return false;
+    const ids = new Set(entrance.cellIds.map((id) => owners.get(id)));
+    if (ids.size !== 1 || ids.has(undefined) || [...ids][0] !== entrance.fieldId) return false;
+  }
   return true;
 }
 
@@ -98,15 +92,11 @@ export function evaluateTileRules(config: TileConfig, tile: GeneratedTile): Rule
       issues.push(
         ...fieldIssues(config, tile.cells, map, field.cellIds, field.label || field.id, field.id),
       );
-  if (
-    config.paths.enabled &&
-    config.rules.requirePathConnectivity &&
-    !pathConnected(config, tile, map)
-  )
+  if (config.paths.enabled && config.rules.requirePathConnectivity && !pathConnected(tile, map))
     issues.push({
       code: 'path-connectivity',
       message:
-        'Das Wegenetz ist nicht vollständig verbunden: Nicht alle Feldteile und aktiven Eingangsmündungen sind über Spielfelder mit dem Pentagon erreichbar.',
+        'Das Wegenetz ist nicht vollständig verbunden: Nicht alle Feldteile und sechs Außeneingänge sind über Spielfelder mit dem Pentagon erreichbar.',
     });
   return issues;
 }

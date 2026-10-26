@@ -4,6 +4,8 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { buildTileSurfaces, type SurfaceRegion } from './surfaces';
 import { buildSubgrid } from '../core/subgrid';
 import { decorationClearsBorder } from '../core/tile-border';
+import { decorationColorVariant } from '../core/object-colors';
+import type { DecorationColorVariant } from '../core/object-colors';
 import type { DecorationKind, GeneratedTile, Point, TileConfig } from '../core/types';
 import { actionTexture } from './icons';
 import { createTileMaterial, updateTileMaterial } from './material';
@@ -280,14 +282,17 @@ export class TileRenderer {
         { vertexColors: true, roughness: 1, side: THREE.DoubleSide },
         config.terrain.texture,
         config.terrain.grain,
-        config.seed,
+        config.terrain.noise.seed,
         config.paths.detail,
+        config.terrain.noise.origin,
       );
       this.voxelMaterial = createTileMaterial(
         { vertexColors: true, roughness: 1 },
         config.terrain.texture,
         config.terrain.grain * 0.4,
-        config.seed,
+        config.terrain.noise.seed,
+        { centerLight: 0, edgeShade: 0 },
+        config.terrain.noise.origin,
       );
       this.preservedMaterials.add(this.terrainMaterial);
       this.preservedMaterials.add(this.voxelMaterial);
@@ -296,15 +301,18 @@ export class TileRenderer {
         this.terrainMaterial,
         config.terrain.texture,
         config.terrain.grain,
-        config.seed,
+        config.terrain.noise.seed,
         config.paths.detail,
+        config.terrain.noise.origin,
       );
       if (this.voxelMaterial)
         updateTileMaterial(
           this.voxelMaterial,
           config.terrain.texture,
           config.terrain.grain * 0.4,
-          config.seed,
+          config.terrain.noise.seed,
+          { centerLight: 0, edgeShade: 0 },
+          config.terrain.noise.origin,
         );
     }
     this.materialKey = materialKey;
@@ -411,7 +419,14 @@ export class TileRenderer {
       }
     });
     if (config.decoration.enabled) {
-      const groups = new Map<string, GeneratedTile['decorations']>();
+      const groups = new Map<
+        string,
+        {
+          modelId: string;
+          variant: DecorationColorVariant | null;
+          items: GeneratedTile['decorations'];
+        }
+      >();
       tile.decorations.forEach((decoration) => {
         if (
           !decorationClearsBorder(
@@ -422,20 +437,22 @@ export class TileRenderer {
           )
         )
           return;
-        const id = this.slots.get(decoration.kind) ?? decoration.kind;
-        let items = groups.get(id);
-        if (!items) {
-          items = [];
-          groups.set(id, items);
+        const modelId = this.slots.get(decoration.kind) ?? decoration.kind;
+        const variant = decorationColorVariant(config, decoration.kind, decoration.id);
+        const key = JSON.stringify([modelId, variant]);
+        let group = groups.get(key);
+        if (!group) {
+          group = { modelId, variant, items: [] };
+          groups.set(key, group);
         }
-        items.push(decoration);
+        group.items.push(decoration);
       });
       const transform = new THREE.Object3D();
-      groups.forEach((items, id) => {
-        const model = this.models.get(id) ?? this.models.get(items[0]?.kind ?? 'tree');
+      groups.forEach(({ modelId, variant, items }) => {
+        const model = this.models.get(modelId) ?? this.models.get(items[0]?.kind ?? 'tree');
         if (!model) return;
         const mesh = new THREE.InstancedMesh(
-          voxelGeometry(model),
+          voxelGeometry(model, variant),
           this.voxelMaterial,
           items.length,
         );
@@ -635,13 +652,23 @@ export class TileRenderer {
     };
   }
 
-  async exportPng(size: number, transparent: boolean): Promise<Blob> {
+  async exportPng(
+    size: number,
+    transparent: boolean,
+    view: TileConfig['camera'] = this.config?.camera ?? {
+      mode: 'top',
+      azimuth: 0,
+      elevation: 90,
+      fov: 0,
+      zoom: 1,
+    },
+  ): Promise<Blob> {
     if (!this.config) throw new Error('Noch keine Kachel zum Exportieren vorhanden.');
     const previousPixelRatio = this.renderer.getPixelRatio();
     const previousWidth = this.width,
       previousHeight = this.height;
     const cameraState = captureCameraState(this.camera);
-    const exportCameraKey = JSON.stringify(this.config.camera);
+    const configuredCameraKey = JSON.stringify(this.config.camera);
     const exportGeometryRevision = this.geometryRevision;
     const previousBackground = this.scene.background;
     const previousGround = this.ground.visible,
@@ -657,7 +684,7 @@ export class TileRenderer {
       this.ground.visible = false;
       this.selection.visible = false;
       // The saved config, rather than transient orbit gestures, defines reproducible output.
-      this.setView(this.config.camera);
+      this.setView(view);
       this.renderNow();
       const result = await new Promise<Blob>((resolve, reject) =>
         this.canvas.toBlob(
@@ -678,7 +705,7 @@ export class TileRenderer {
       this.selection.visible = previousSelection;
       this.setView(this.config.camera);
       if (
-        JSON.stringify(this.config.camera) === exportCameraKey &&
+        JSON.stringify(this.config.camera) === configuredCameraKey &&
         (this.config.camera.mode === 'orbit' || this.geometryRevision === exportGeometryRevision)
       )
         restoreCameraState(this.camera, cameraState);

@@ -1,5 +1,6 @@
 import type { GeneratedTile, TileConfig } from '../core/types';
 import type { SeededProjectOptions } from '../core/project';
+import type { BulkGenerationOptions } from '../core/bulk';
 import { generationKey } from './generationKey';
 import type { EngineInput, EngineOutput, EngineReply, EngineRequest } from './engineProtocol';
 export interface WorkerPort {
@@ -12,7 +13,7 @@ export interface WorkerPort {
 }
 interface Task {
   id: number;
-  channel: 'preview' | 'project' | 'validation';
+  channel: 'preview' | 'project' | 'bulk' | 'validation';
   input: EngineInput;
   resolve: (output: EngineOutput) => void;
   reject: (error: Error) => void;
@@ -39,11 +40,12 @@ export class EngineClient {
     const task = this.inFlight;
     this.inFlight = null;
     if (reply.ok) {
-      this.cache = {
-        key: reply.output.key,
-        tile: reply.output.tile,
-        elapsedMs: reply.output.elapsedMs,
-      };
+      if (reply.output.kind !== 'bulk')
+        this.cache = {
+          key: reply.output.key,
+          tile: reply.output.tile,
+          elapsedMs: reply.output.elapsedMs,
+        };
       task.resolve(reply.output);
     } else task.reject(new Error(reply.error));
     this.pump();
@@ -95,6 +97,7 @@ export class EngineClient {
       { kind: 'tile', key, config: JSON.parse(key) as TileConfig },
       'preview',
     );
+    if (output.kind !== 'tile') throw new Error('Ungültige Generatorantwort.');
     return { key: output.key, tile: output.tile, elapsedMs: output.elapsedMs };
   }
   async validate(config: TileConfig) {
@@ -103,12 +106,18 @@ export class EngineClient {
       { kind: 'tile', key, config: JSON.parse(key) as TileConfig },
       'validation',
     );
+    if (output.kind !== 'tile') throw new Error('Ungültige Generatorantwort.');
     return output.tile;
   }
   async project(seed: string, options: SeededProjectOptions) {
     const output = await this.request({ kind: 'project', seed, options }, 'project');
     if (output.kind !== 'project') throw new Error('Ungültige Generatorantwort.');
     return output.config;
+  }
+  async bulk(options: BulkGenerationOptions) {
+    const output = await this.request({ kind: 'bulk', options }, 'bulk');
+    if (output.kind !== 'bulk') throw new Error('Ungültige Generatorantwort.');
+    return output.project;
   }
   dispose() {
     if (this.disposed) return;

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { DecorationKind } from '../core/types';
+import type { DecorationColorVariant } from '../core/object-colors';
 import { DECORATION_KINDS } from '../core/objects';
 import { createNewAssets } from './assets';
 
@@ -9,7 +10,17 @@ export interface VoxelModel {
   size: [number, number, number];
   palette: string[];
   voxels: [number, number, number, number][];
+  /** Semantic color slots are assigned only to built-in models; custom model colors stay intact. */
+  paletteRoles?: VoxelPaletteRole[];
 }
+
+export type VoxelPaletteRole =
+  | 'neutral'
+  | 'trunk'
+  | 'foliage'
+  | 'mushroom-cap-shadow'
+  | 'mushroom-cap-main'
+  | 'mushroom-cap-light';
 
 export interface NormalizedVoxelModel extends VoxelModel {
   scale: number;
@@ -144,15 +155,62 @@ const LEGACY_ASSETS: VoxelModel[] = [
 const modelsById = new Map(
   [...LEGACY_ASSETS, ...createNewAssets()].map((model) => [model.id, model]),
 );
+const paletteRoles: Partial<Record<DecorationKind, VoxelPaletteRole[]>> = {
+  tree: ['trunk', 'foliage', 'foliage', 'foliage'],
+  pine: ['trunk', 'foliage', 'foliage', 'foliage'],
+  oak: ['trunk', 'foliage', 'foliage', 'foliage'],
+  birch: ['trunk', 'trunk', 'foliage', 'foliage', 'foliage'],
+  willow: ['trunk', 'trunk', 'foliage', 'foliage', 'foliage', 'foliage'],
+  maple: ['trunk', 'trunk', 'foliage', 'foliage', 'foliage', 'foliage', 'foliage'],
+  mushrooms: [
+    'neutral',
+    'neutral',
+    'mushroom-cap-shadow',
+    'neutral',
+    'mushroom-cap-main',
+    'mushroom-cap-light',
+  ],
+};
 export const ASSET_LIBRARY: VoxelModel[] = DECORATION_KINDS.map((kind) => {
   const model = modelsById.get(kind);
   if (!model) throw new Error(`Kein Voxelmodell für ${kind}.`);
-  return model;
+  const roles = paletteRoles[kind];
+  return roles ? { ...model, paletteRoles: [...roles] } : model;
 });
 
+/** Resolve a semantic palette without changing the source model or its stable content ID. */
+export function voxelPalette(
+  input: VoxelModel,
+  variant: DecorationColorVariant | null = null,
+): string[] {
+  const palette = [...input.palette];
+  const roles = input.paletteRoles;
+  if (!roles || !variant) return palette;
+  const foliageSlots = roles.flatMap((role, index) => (role === 'foliage' ? [index] : []));
+  foliageSlots.forEach((paletteIndex, index) => {
+    if (!variant.foliage?.length) return;
+    const sourceIndex = Math.round(
+      (index / Math.max(1, foliageSlots.length - 1)) * (variant.foliage.length - 1),
+    );
+    palette[paletteIndex] = variant.foliage[sourceIndex]!;
+  });
+  const capColors = variant.mushroomCap;
+  if (capColors)
+    roles.forEach((role, index) => {
+      if (role === 'mushroom-cap-shadow') palette[index] = capColors[0];
+      if (role === 'mushroom-cap-main') palette[index] = capColors[1];
+      if (role === 'mushroom-cap-light') palette[index] = capColors[2];
+    });
+  return palette;
+}
+
 /** Face-culling keeps the library compact without changing its voxel silhouette. */
-export function voxelGeometry(input: VoxelModel): THREE.BufferGeometry {
+export function voxelGeometry(
+  input: VoxelModel,
+  variant: DecorationColorVariant | null = null,
+): THREE.BufferGeometry {
   const model = normalizeVoxelModel(input);
+  const palette = voxelPalette(model, variant);
   const occupied = new Set(model.voxels.map(([x, y, z]) => `${x},${y},${z}`));
   const positions: number[] = [],
     normals: number[] = [],
@@ -214,7 +272,7 @@ export function voxelGeometry(input: VoxelModel): THREE.BufferGeometry {
     },
   ];
   model.voxels.forEach(([x, y, z, index]) => {
-    const color = new THREE.Color(model.palette[index]);
+    const color = new THREE.Color(palette[index] ?? model.palette[index]);
     faces.forEach((face) => {
       const [nx = 0, ny = 0, nz = 0] = face.n;
       if (occupied.has(`${x + nx},${y + ny},${z + nz}`)) return;

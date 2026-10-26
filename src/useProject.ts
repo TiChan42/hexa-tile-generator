@@ -53,6 +53,11 @@ export function useProject() {
       })),
     [],
   );
+  const load = useCallback(
+    (config: TileConfig) =>
+      setHistory({ past: [], present: configSchema.parse(config), future: [] }),
+    [],
+  );
   const undo = useCallback(
     () =>
       setHistory((prev) =>
@@ -84,6 +89,7 @@ export function useProject() {
     migrationNotice: initial.notices.join(' '),
     update,
     replace,
+    load,
     undo,
     redo,
     canUndo: !!history.past.length,
