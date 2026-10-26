@@ -54,6 +54,15 @@ test('quick actions stay reachable, highlight the selected union and keep the hi
   await expect(
     quick.getByRole('button', { name: 'Neues Spielfeld', exact: true }),
   ).toBeInViewport();
+  await quick.getByRole('button', { name: 'Feldform bearbeiten', exact: true }).click();
+  const lineTools = quick.getByRole('group', { name: 'Feldform nach Rasterlinien' });
+  await expect(
+    lineTools.getByRole('button', { name: 'Horizontale Rasterlinie hinzufügen' }),
+  ).toBeVisible();
+  await expect(
+    lineTools.getByRole('button', { name: 'Vertikale Rasterlinie hinzufügen' }),
+  ).toBeVisible();
+  await quick.getByRole('button', { name: 'Platzieren beenden', exact: true }).click();
   await page.screenshot({ path: test.info().outputPath('quick-actions.png') });
   await quick.getByRole('button', { name: 'Neues Spielfeld', exact: true }).click();
   await expect(quick.getByRole('button', { name: 'Anwenden', exact: true })).toBeInViewport();

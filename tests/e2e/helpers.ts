@@ -2,13 +2,14 @@ import { expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { configSchema } from '../../src/core';
 import type { Point, TileConfig } from '../../src/core';
+import { PROJECT_STORAGE_KEY } from '../../src/editor/storage';
 
 export async function project(page: Page): Promise<TileConfig> {
   await expect
-    .poll(() => page.evaluate(() => localStorage.getItem('hexa-studio-project-v10')))
+    .poll(() => page.evaluate((key) => localStorage.getItem(key), PROJECT_STORAGE_KEY))
     .not.toBeNull();
   return configSchema.parse(
-    await page.evaluate(() => JSON.parse(localStorage.getItem('hexa-studio-project-v10')!)),
+    await page.evaluate((key) => JSON.parse(localStorage.getItem(key)!), PROJECT_STORAGE_KEY),
   );
 }
 

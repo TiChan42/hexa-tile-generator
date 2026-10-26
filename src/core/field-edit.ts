@@ -1,8 +1,116 @@
-import { boundaryCells } from './geometry';
+import { boundaryCells, isConnectedSelection } from './geometry';
 import { centralSideCells } from './center-sides';
 import { evaluateFieldShapeRules } from './rules';
 import type { RuleIssue } from './rules';
 import type { FieldEdit, GameField, GeneratedTile, TileConfig } from './types';
+
+export type FieldShapeAxis = 'horizontal' | 'vertical';
+
+interface RasterGroup {
+  key: string;
+  cells: GeneratedTile['cells'];
+  coordinate: number;
+}
+
+/** Add or remove one connected raster band while respecting fixed mouths and center portals. */
+export function adjustFieldShapeLine(
+  tile: GeneratedTile,
+  cellIds: readonly string[],
+  axis: FieldShapeAxis,
+  direction: -1 | 1,
+  fieldId: string | null,
+): string[] {
+  const selected = new Set(cellIds),
+    cellsById = new Map(tile.cells.map((cell) => [cell.id, cell]));
+  if (!selected.size || [...selected].some((id) => !cellsById.has(id))) return [...cellIds];
+
+  const grouped = new Map<string, GeneratedTile['cells']>();
+  for (const cell of tile.cells) {
+    const key = cell.rasterId ?? cell.id,
+      group = grouped.get(key) ?? [];
+    group.push(cell);
+    grouped.set(key, group);
+  }
+  const coordinate = (cell: GeneratedTile['cells'][number]) =>
+    axis === 'horizontal'
+      ? (cell.rasterCenter ?? cell.center).y
+      : (cell.rasterCenter ?? cell.center).x;
+  const groups: RasterGroup[] = [...grouped].map(([key, members]) => ({
+    key,
+    cells: members,
+    coordinate: coordinate(members[0]!),
+  }));
+  const selectedGroups = groups.filter((group) =>
+    group.cells.some((cell) => selected.has(cell.id)),
+  );
+  if (!selectedGroups.length) return [...cellIds];
+
+  const min = Math.min(...selectedGroups.map((group) => group.coordinate));
+  const max = Math.max(...selectedGroups.map((group) => group.coordinate));
+  const selectedIds = [...selected];
+  const protectedCell = (cell: GeneratedTile['cells'][number]) =>
+    cell.entranceSide !== undefined || cell.centerPort !== undefined || cell.landscapeOnly === true;
+
+  if (direction < 0) {
+    const lineFor = (side: -1 | 1) => {
+      const edge = side < 0 ? min : max;
+      return selectedGroups.filter((group) => Math.abs(group.coordinate - edge) < 1e-8);
+    };
+    const removable = (side: -1 | 1) => {
+      const line = lineFor(side);
+      if (!line.length || line.some((group) => group.cells.some(protectedCell))) return null;
+      const removed = new Set(line.flatMap((group) => group.cells.map((cell) => cell.id)));
+      const next = selectedIds.filter((id) => !removed.has(id));
+      return next.length && isConnectedSelection(next, tile.cells) ? { line, next } : null;
+    };
+    const negative = removable(-1),
+      positive = removable(1);
+    if (!negative && !positive) return selectedIds;
+    if (!negative) return positive!.next;
+    if (!positive) return negative.next;
+    return negative.line.length <= positive.line.length ? negative.next : positive.next;
+  }
+
+  const available = groups.filter(
+    (group) =>
+      !group.cells.some((cell) => selected.has(cell.id)) &&
+      group.cells.every(
+        (cell) =>
+          cell.surfacePolygons.length > 0 &&
+          !protectedCell(cell) &&
+          (!cell.fieldId || cell.fieldId === fieldId),
+      ) &&
+      group.cells.some((cell) => cell.neighbors.some((id) => selected.has(id))),
+  );
+  const sideFor = (group: RasterGroup): -1 | 0 | 1 =>
+    group.coordinate < min - 1e-8 ? -1 : group.coordinate > max + 1e-8 ? 1 : 0;
+  const negative = available.filter((group) => sideFor(group) === -1),
+    positive = available.filter((group) => sideFor(group) === 1);
+  if (!negative.length && !positive.length) return selectedIds;
+
+  const selectedMidpoint = (min + max) / 2,
+    negativeWeight = selectedGroups.filter((group) => group.coordinate < selectedMidpoint).length,
+    positiveWeight = selectedGroups.filter((group) => group.coordinate > selectedMidpoint).length;
+  const side: -1 | 1 = !negative.length
+    ? 1
+    : !positive.length
+      ? -1
+      : negativeWeight <= positiveWeight
+        ? -1
+        : 1;
+  const candidates = side < 0 ? negative : positive,
+    extension = Math.min(
+      ...candidates.map((group) => (side < 0 ? min - group.coordinate : group.coordinate - max)),
+    ),
+    line = candidates.filter(
+      (group) =>
+        Math.abs((side < 0 ? min - group.coordinate : group.coordinate - max) - extension) < 1e-8,
+    );
+  const next = new Set(selectedIds);
+  line.forEach((group) => group.cells.forEach((cell) => next.add(cell.id)));
+  const result = [...next];
+  return isConnectedSelection(result, tile.cells) ? result : selectedIds;
+}
 
 /** Check a draft selection without cloning a project or changing the generated board. */
 export function validateFieldShapeSelection(

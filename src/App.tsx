@@ -42,6 +42,7 @@ import {
   prepareCenterEdit,
   rollFieldActions,
   applyBiomePreset,
+  adjustFieldShapeLine,
   BIOME_PRESETS,
   shuffleBulkProject,
   syncBulkTile,
@@ -52,6 +53,7 @@ import { builtinObjectPreviewUrl, voxelPreviewUrl } from './render/objectPreview
 import type { ActionId, DecorationKind, GeneratedTile, Point, TileConfig } from './core/types';
 import type { BulkProject } from './core';
 import type { BiomePresetId } from './core/biomes';
+import type { FieldShapeAxis } from './core/field-edit';
 import type { TileRenderer } from './render';
 import Inspector from './components/Inspector';
 import type { Layer, LibraryEntry } from './components/Inspector';
@@ -207,6 +209,16 @@ export default function App() {
           : sum,
       0,
     );
+  }, [tile, selection]);
+  const shapeLineCounts = useMemo(() => {
+    const selected = new Set(selection),
+      points = tile.cells
+        .filter((cell) => selected.has(cell.id))
+        .map((cell) => cell.rasterCenter ?? cell.center);
+    return {
+      horizontal: new Set(points.map((point) => point.y.toFixed(6))).size,
+      vertical: new Set(points.map((point) => point.x.toFixed(6))).size,
+    };
   }, [tile, selection]);
   const selectionStatus = useMemo(() => {
     if (placing !== 'fields') return { issue: null, warnings: [] as string[] };
@@ -490,6 +502,20 @@ export default function App() {
     setSelection([...selectedField.cellIds]);
     setLayer('paths');
     setPlacing('fields');
+  };
+  const adjustShapeLine = (axis: FieldShapeAxis, direction: -1 | 1) => {
+    if (placing !== 'fields' || busy) return;
+    const next = adjustFieldShapeLine(tile, selection, axis, direction, editingFieldId);
+    if (next.length === selection.length && next.every((id) => selection.includes(id))) {
+      notify(
+        direction > 0
+          ? `Am ${axis === 'horizontal' ? 'horizontalen' : 'vertikalen'} Rand ist keine freie Rasterlinie verfügbar.`
+          : `Am ${axis === 'horizontal' ? 'horizontalen' : 'vertikalen'} Rand kann keine verbundene Rasterlinie entfernt werden.`,
+        true,
+      );
+      return;
+    }
+    setSelection(next);
   };
   const newField = () => {
     if (!editable || busy) return;
@@ -1295,6 +1321,7 @@ export default function App() {
         placing={placing}
         editingField={!!editingFieldId}
         selectionCount={selection.length}
+        shapeLineCounts={shapeLineCounts}
         selectionArea={selectionArea}
         fieldIssue={fieldIssue}
         selectionWarnings={selectionStatus.warnings}
@@ -1313,6 +1340,7 @@ export default function App() {
         onNewField={newField}
         onEditField={editFieldShape}
         onApply={() => void createField()}
+        onAdjustShapeLine={adjustShapeLine}
         onCancel={cancelPlacement}
         onClear={() =>
           setSelection(

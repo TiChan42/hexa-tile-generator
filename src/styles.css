@@ -1546,6 +1546,31 @@ select {
   font-size: 10px;
   color: var(--muted);
 }
+.field-line-tools {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  margin: 8px 0 4px;
+}
+.field-line-tool {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 27px 27px;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.field-line-tool > span {
+  color: #657265;
+  font-size: 9px;
+}
+.field-line-tool .icon-button {
+  width: 27px;
+  height: 27px;
+}
+.field-line-hint {
+  margin: 3px 0 10px;
+  font-size: 9px;
+}
 .quick-secondary {
   overflow-y: auto;
   min-height: 0;

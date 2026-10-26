@@ -2,6 +2,7 @@ import {
   Check,
   Download,
   Grid3X3,
+  Minus,
   MousePointer2,
   Plus,
   Save,
@@ -13,6 +14,7 @@ import {
 import type { DecorationPlacement, GameField, GeneratedTile, TileConfig } from '../core/types';
 import { ACTIONS } from '../core/types';
 import type { RuleIssue } from '../core/rules';
+import type { FieldShapeAxis } from '../core/field-edit';
 import type { Layer, Update } from './Inspector';
 import { Control, Toggle } from './Controls';
 
@@ -27,6 +29,7 @@ interface Props {
   placing: 'fields' | 'objects' | null;
   editingField: boolean;
   selectionCount: number;
+  shapeLineCounts: { horizontal: number; vertical: number };
   selectionArea: number;
   fieldIssue: string | null;
   selectionWarnings: string[];
@@ -40,6 +43,7 @@ interface Props {
   onNewField: () => void;
   onEditField: () => void;
   onApply: () => void;
+  onAdjustShapeLine: (axis: FieldShapeAxis, direction: -1 | 1) => void;
   onCancel: () => void;
   onClear: () => void;
   onPlaceObjects: () => void;
@@ -81,6 +85,42 @@ export default function QuickActions(props: Props) {
               <span>{props.selectionCount} ausgewählt</span>
               {' · '}
               {((props.selectionArea / tileArea) * 100).toFixed(1)} % Fläche
+            </p>
+            <div className="field-line-tools" role="group" aria-label="Feldform nach Rasterlinien">
+              {(
+                [
+                  { axis: 'horizontal' as const, label: 'Horizontal' },
+                  { axis: 'vertical' as const, label: 'Vertikal' },
+                ] as const
+              ).map(({ axis, label }) => (
+                <div className="field-line-tool" key={axis}>
+                  <span>
+                    {label} ({props.shapeLineCounts[axis]})
+                  </span>
+                  <button
+                    className="icon-button"
+                    aria-label={`${label}e Rasterlinie entfernen`}
+                    title={`${label}e Rasterlinie entfernen`}
+                    disabled={props.busy || props.selectionCount <= 1}
+                    onClick={() => props.onAdjustShapeLine(axis, -1)}
+                  >
+                    <Minus size={14} />
+                  </button>
+                  <button
+                    className="icon-button"
+                    aria-label={`${label}e Rasterlinie hinzufügen`}
+                    title={`${label}e Rasterlinie hinzufügen`}
+                    disabled={props.busy || props.selectionCount === 0}
+                    onClick={() => props.onAdjustShapeLine(axis, 1)}
+                  >
+                    <Plus size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <p className="hint field-line-hint">
+              Erweiterungen bevorzugen horizontale Linien. Vertikale Linien lassen sich zusätzlich
+              einzeln ergänzen oder abziehen.
             </p>
             <div className="quick-buttons">
               <button

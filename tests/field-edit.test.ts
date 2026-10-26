@@ -11,6 +11,7 @@ import {
   validateFieldShapeSelection,
 } from '../src/core';
 import type { GameField, GeneratedTile, TileConfig } from '../src/core';
+import { adjustFieldShapeLine } from '../src/core/field-edit';
 
 function fixture(): { config: TileConfig; tile: GeneratedTile } {
   const config = structuredClone(defaultConfig);
@@ -82,6 +83,46 @@ function editableEntry(tile: GeneratedTile): { field: GameField; added: string; 
 }
 
 describe('pure visible-board field shape edits', () => {
+  it('adds and removes complete horizontal and vertical raster lines without disconnecting the selection', () => {
+    const { tile } = fixture();
+    for (const [axis, coordinate] of [
+      ['horizontal', (point: { x: number; y: number }) => point.y],
+      ['vertical', (point: { x: number; y: number }) => point.x],
+    ] as const) {
+      let selected: string[] | undefined, expanded: string[] | undefined;
+      for (const cell of tile.cells) {
+        if (
+          cell.fieldId ||
+          cell.landscapeOnly ||
+          cell.entranceSide !== undefined ||
+          cell.centerPort !== undefined ||
+          !cell.surfacePolygons.length
+        )
+          continue;
+        const next = adjustFieldShapeLine(tile, [cell.id], axis, 1, null);
+        if (next.length > 1) {
+          selected = [cell.id];
+          expanded = next;
+          break;
+        }
+      }
+      expect(expanded, `expected a free ${axis} line to be available`).toBeDefined();
+      expect(isConnectedSelection(expanded!, tile.cells)).toBe(true);
+      const pointFor = (id: string) => {
+        const cell = tile.cells.find((candidate) => candidate.id === id)!;
+        return cell.rasterCenter ?? cell.center;
+      };
+      const before = new Set(selected!.map((id) => coordinate(pointFor(id)).toFixed(6)));
+      const after = new Set(expanded!.map((id) => coordinate(pointFor(id)).toFixed(6)));
+      expect(after.size).toBe(before.size + 1);
+
+      const contracted = adjustFieldShapeLine(tile, expanded!, axis, -1, null);
+      expect(new Set(contracted.map((id) => coordinate(pointFor(id)).toFixed(6))).size).toBe(
+        after.size - 1,
+      );
+      expect(isConnectedSelection(contracted, tile.cells)).toBe(true);
+    }
+  });
   it('validates a live selection without materializing fields or mutating the source board', () => {
     const { config, tile } = fixture();
     const beforeConfig = structuredClone(config),
