@@ -39,10 +39,10 @@ const v2 = {
 const fixtures = [v1, v2, v3, v4, v5, v6, v7, v8, v9];
 
 describe('versioned browser project storage', () => {
-  it('prioritizes V10 and keeps every older storage key as a fallback', () => {
-    expect(PROJECT_STORAGE_KEY).toBe('hexa-studio-project-v10');
+  it('prioritizes V13 and keeps every older storage key as a fallback', () => {
+    expect(PROJECT_STORAGE_KEY).toBe('hexa-studio-project-v13');
     expect(PROJECT_STORAGE_KEYS).toEqual(
-      Array.from({ length: 10 }, (_, index) => `hexa-studio-project-v${10 - index}`),
+      Array.from({ length: 13 }, (_, index) => `hexa-studio-project-v${13 - index}`),
     );
     const storage = new MemoryStorage();
     const current = { ...structuredClone(defaultConfig), seed: 'current-v7' };
@@ -60,10 +60,10 @@ describe('versioned browser project storage', () => {
       const original = JSON.stringify(fixture);
       storage.entries.set(key, original);
       const result = loadStoredProject(storage);
-      expect(result.config.schemaVersion).toBe(10);
-      expect(result.config.generatorVersion).toBe('10.1.0');
+      expect(result.config.schemaVersion).toBe(13);
+      expect(result.config.generatorVersion).toBe('13.0.0');
       expect(result.migrated).toBe(true);
-      expect(result.notices.join(' ')).toContain('Projekt auf Generator 10.1 umgestellt');
+      expect(result.notices.join(' ')).toContain('Projekt auf Generator 13 umgestellt');
       expect(storage.entries.get(key)).toBe(original);
       expect(storage.writes).toEqual([]);
     },
@@ -253,7 +253,7 @@ it('preserves V8 rules and objects while saving border settings exclusively into
   result.config.border = { enabled: true, width: 0.09, mode: 'transparent', color: '#345678' };
   expect(saveStoredProject(storage, result.config)).toBe(true);
   expect(storage.entries.get('hexa-studio-project-v8')).toBe(before);
-  expect(storage.writes).toEqual(['hexa-studio-project-v10']);
+  expect(storage.writes).toEqual(['hexa-studio-project-v13']);
   expect(loadStoredProject(storage)).toEqual({
     config: result.config,
     migrated: false,
@@ -290,7 +290,7 @@ it('migrates V9 preferences into V10 without replacing the historical autosave',
   result.config.actions.revision = 42;
   expect(saveStoredProject(storage, result.config)).toBe(true);
   expect(storage.entries.get('hexa-studio-project-v9')).toBe(original);
-  expect(storage.writes).toEqual(['hexa-studio-project-v10']);
+  expect(storage.writes).toEqual(['hexa-studio-project-v13']);
   expect(loadStoredProject(storage)).toEqual({
     config: result.config,
     migrated: false,

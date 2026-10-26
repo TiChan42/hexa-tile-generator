@@ -1,7 +1,14 @@
 import { boundaryCells, centroid, hexagon, isConnectedSelection } from './geometry';
 import { centralSideCells } from './center-sides';
-import { compactCandidate, fieldAnchor, fieldArea, MIN_FIELD_AREA } from './fields';
+import {
+  clusterCompactness,
+  compactCandidate,
+  fieldAnchor,
+  fieldArea,
+  MIN_FIELD_AREA,
+} from './fields';
 import type { FieldCluster } from './fields';
+import { buildPathNetwork, selectBranchAnchors } from './path-network';
 import { randomAt } from './random';
 import type { Entrance, Point, TileCell, TileConfig } from './types';
 
@@ -9,11 +16,11 @@ interface Node {
   id: string;
   base: string;
   point: Point;
-  lane: number;
-  step: number;
+  entrySide?: number;
   group: FieldCluster;
 }
 const pair = (a: string, b: string): string => (a < b ? `${a}|${b}` : `${b}|${a}`);
+const compareText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 const distance = (a: Point, b: Point): number => Math.hypot(a.x - b.x, a.y - b.y);
 function lineDistance(point: Point, a: Point, b: Point): number {
   const dx = b.x - a.x,
@@ -31,7 +38,7 @@ function routeGuideDistance(point: Point, a: Point, b: Point, seed: string): num
     bend =
       (randomAt(
         seed,
-        'topology-v11.1-route-bend',
+        'topology-v13-route-bend',
         from.x.toFixed(3),
         from.y.toFixed(3),
         to.x.toFixed(3),
@@ -45,6 +52,56 @@ function routeGuideDistance(point: Point, a: Point, b: Point, seed: string): num
     };
   return Math.min(lineDistance(point, from, control), lineDistance(point, control, to));
 }
+interface QueueEntry {
+  id: string;
+  cost: number;
+}
+class MinQueue {
+  private values: QueueEntry[] = [];
+  get size(): number {
+    return this.values.length;
+  }
+  push(entry: QueueEntry): void {
+    let index = this.values.push(entry) - 1;
+    while (index > 0) {
+      const parent = Math.floor((index - 1) / 2),
+        previous = this.values[parent]!;
+      if (previous.cost < entry.cost || (previous.cost === entry.cost && previous.id <= entry.id))
+        break;
+      this.values[index] = previous;
+      index = parent;
+    }
+    this.values[index] = entry;
+  }
+  pop(): QueueEntry | undefined {
+    const first = this.values[0],
+      last = this.values.pop();
+    if (!this.values.length || !last) return first;
+    let index = 0;
+    while (true) {
+      const left = index * 2 + 1,
+        right = left + 1;
+      if (left >= this.values.length) break;
+      let child = left;
+      if (
+        right < this.values.length &&
+        (this.values[right]!.cost < this.values[left]!.cost ||
+          (this.values[right]!.cost === this.values[left]!.cost &&
+            this.values[right]!.id < this.values[left]!.id))
+      )
+        child = right;
+      if (
+        last.cost < this.values[child]!.cost ||
+        (last.cost === this.values[child]!.cost && last.id <= this.values[child]!.id)
+      )
+        break;
+      this.values[index] = this.values[child]!;
+      index = child;
+    }
+    this.values[index] = last;
+    return first;
+  }
+}
 function route(
   starts: Iterable<string>,
   goals: Set<string>,
@@ -54,20 +111,18 @@ function route(
   b: Point,
   seed: string,
 ): string[] {
-  const open = new Set(starts),
-    costs = new Map([...open].map((id) => [id, 0])),
-    previous = new Map<string, string>();
+  const costs = new Map<string, number>(),
+    previous = new Map<string, string>(),
+    open = new MinQueue();
+  for (const id of [...starts].sort()) {
+    costs.set(id, 0);
+    open.push({ id, cost: 0 });
+  }
   while (open.size) {
-    let current = '',
-      best = Infinity;
-    for (const id of open) {
-      const score = costs.get(id)!;
-      if (score < best || (score === best && id < current)) {
-        current = id;
-        best = score;
-      }
-    }
-    open.delete(current);
+    const currentEntry = open.pop()!,
+      best = currentEntry.cost;
+    let current = currentEntry.id;
+    if (best !== costs.get(current)) continue;
     if (goals.has(current)) {
       const result = [current];
       while (previous.has(current)) {
@@ -84,11 +139,11 @@ function route(
           1 +
           routeGuideDistance(cell.center, a, b, seed) * 8 +
           Math.abs(cell.baseHeight - cells.get(current)!.baseHeight) * 2 +
-          randomAt(seed, 'topology-v11.1-lane-route', id) * 0.24;
+          randomAt(seed, 'topology-v13-route-variation', id) * 0.3;
       if (next < (costs.get(id) ?? Infinity)) {
         costs.set(id, next);
         previous.set(id, current);
-        open.add(id);
+        open.push({ id, cost: next });
       }
     }
   }
@@ -146,72 +201,88 @@ function topologyAttempt(
     boundary = hexagon(),
     mouths = Array.from({ length: 6 }, (_, side) =>
       entrances.find((entrance) => entrance.side === side),
-    );
-  const ends = Array.from(
-    { length: 6 },
-    (_, side) =>
-      mouths[side]?.center ?? {
-        x: (boundary[side]!.x + boundary[(side + 1) % 6]!.x) / 2,
-        y: (boundary[side]!.y + boundary[(side + 1) % 6]!.y) / 2,
-      },
-  );
-  const counts = Array.from({ length: 6 }, () => 1),
-    lengths = ends.map((end) => distance(end, center));
-  for (let i = 6; i < target; i++) {
-    let best = 0;
-    for (let lane = 1; lane < 6; lane++)
-      if (lengths[lane]! / (counts[lane]! + 0.4) > lengths[best]! / (counts[best]! + 0.4))
-        best = lane;
-    counts[best]++;
+    ),
+    outer = new Set(
+      Array.from({ length: 6 }, (_, side) => boundaryCells(cells, side)).flatMap((list) =>
+        list.map((cell) => cell.id),
+      ),
+    ),
+    blockedSites = new Set([
+      ...manual.flatMap((group) => [...group.ids]),
+      ...entrances.flatMap((entrance) => entrance.footprintCellIds),
+    ]),
+    sitePool = cells.filter(
+      (cell) =>
+        cell.surfacePolygons.length > 0 &&
+        !cell.landscapeOnly &&
+        !outer.has(cell.id) &&
+        !blockedSites.has(cell.id) &&
+        Math.min(
+          ...boundary.map((point, side) =>
+            lineDistance(cell.center, point, boundary[(side + 1) % boundary.length]!),
+          ),
+        ) >= 0.12,
+    ),
+    anchors = selectBranchAnchors(config.seed, sitePool, Math.max(0, target - 6));
+  // Keep V12's generated IDs so metadata-only edits remain attached after migration.
+  const legacyEnds = Array.from(
+      { length: 6 },
+      (_, side) =>
+        mouths[side]?.center ?? {
+          x: (boundary[side]!.x + boundary[(side + 1) % 6]!.x) / 2,
+          y: (boundary[side]!.y + boundary[(side + 1) % 6]!.y) / 2,
+        },
+    ),
+    legacyCounts = Array.from({ length: 6 }, () => 1),
+    legacyLengths = legacyEnds.map((end) => distance(end, center));
+  for (let index = 6; index < target; index++) {
+    let lane = 0;
+    for (let candidate = 1; candidate < 6; candidate++)
+      if (
+        legacyLengths[candidate]! / (legacyCounts[candidate]! + 0.4) >
+        legacyLengths[lane]! / (legacyCounts[lane]! + 0.4)
+      )
+        lane = candidate;
+    legacyCounts[lane]++;
   }
-  const nodes: Node[] = [],
-    lanes: Node[][] = [];
-  for (let lane = 0; lane < 6; lane++) {
-    const end = ends[lane]!,
-      d = lengths[lane]!,
-      ux = (end.x - center.x) / d,
-      uy = (end.y - center.y) / d,
-      list: Node[] = [];
-    for (let step = 0; step < counts[lane]!; step++) {
-      const last = counts[lane]! - 1,
-        inner = Math.min(0.23, d * 0.42),
-        outer = Math.max(inner, d - 0.09),
-        t = last ? step / last : 1;
-      const phase = randomAt(config.seed, 'topology-v11.1-lane-phase', lane) * Math.PI * 2;
-      const offset =
-        Math.sin(Math.PI * t) *
-        (Math.sin(t * Math.PI * 2 + phase) * Math.min(0.18, d * 0.15) +
-          Math.sin(t * Math.PI * 4 - phase * 0.7) * Math.min(0.07, d * 0.06) +
-          (randomAt(config.seed, 'topology-v11.1-lane-warp', lane, step) - 0.5) * 0.08);
-      const radialT =
-        t +
-        Math.sin(Math.PI * t) *
-          (randomAt(config.seed, 'topology-v11.1-radial-warp', lane, step) - 0.5) *
-          0.14;
-      const point = {
-        x: center.x + ux * (inner + (outer - inner) * radialT) - uy * offset,
-        y: center.y + uy * (inner + (outer - inner) * radialT) + ux * offset,
-      };
-      const base = step === last ? `auto:entrance:${lane}` : `auto:lane:${lane}:${step}`;
-      const node: Node = {
+  const legacyInteriorIds = legacyCounts.flatMap((count, lane) =>
+    Array.from({ length: count - 1 }, (_, step) => `auto:lane:${lane}:${step}`),
+  );
+  const entryNodes: Node[] = Array.from({ length: 6 }, (_, side) => {
+      const entry = mouths[side],
+        point = entry?.center ?? {
+          x: (boundary[side]!.x + boundary[(side + 1) % 6]!.x) / 2,
+          y: (boundary[side]!.y + boundary[(side + 1) % 6]!.y) / 2,
+        },
+        base = `auto:entrance:${side}`;
+      return {
         base,
         id: base,
         point,
-        lane,
-        step,
+        entrySide: side,
         group: { id: base, ids: new Set(), locked: false },
       };
-      nodes.push(node);
-      list.push(node);
-    }
-    lanes.push(list);
-  }
+    }),
+    nodes: Node[] = [
+      ...entryNodes,
+      ...anchors.map((cell, index): Node => {
+        const base = legacyInteriorIds[index] ?? `auto:branch:${index}`;
+        return {
+          base,
+          id: base,
+          point: cell.center,
+          group: { id: base, ids: new Set(), locked: false },
+        };
+      }),
+    ];
   const assigned = new Set<Node>();
   for (const group of manual) {
-    const entry = entrances.find((entrance) => entrance.cellIds.every((id) => group.ids.has(id)));
+    const entry = entrances.find((entrance) =>
+      entrance.footprintCellIds.every((id) => group.ids.has(id)),
+    );
     const options = nodes.filter((node) => !assigned.has(node));
     const preferred = entry
-      ? lanes[entry.side]!.at(-1)
+      ? entryNodes[entry.side]
       : options.find((node) => node.base === group.id);
     const node =
       preferred && !assigned.has(preferred)
@@ -223,6 +294,7 @@ function topologyAttempt(
           )[0]!;
     node.id = group.id;
     node.group = group;
+    if (node.entrySide === undefined) node.point = fieldAnchor(group.ids, map);
     assigned.add(node);
   }
   for (const node of nodes)
@@ -238,42 +310,8 @@ function topologyAttempt(
     allowed.add(pair(a.id, b.id));
     if (connect) required.push({ a, b });
   };
-  lanes.forEach((lane) => {
-    for (let i = 1; i < lane.length; i++) allow(lane[i - 1]!, lane[i]!, true);
-  });
-  if (config.paths.loop) {
-    const braidCount = 1 + Math.floor(randomAt(config.seed, 'topology-v11.1-braid-count') * 3);
-    const firstLane = Math.floor(randomAt(config.seed, 'topology-v11.1-braid-start') * 6);
-    const linked = new Set<string>();
-    for (let branch = 0; branch < braidCount; branch++) {
-      const laneIndex = (firstLane + branch * 2 + 1) % 6;
-      const firstLaneNodes = lanes[laneIndex]!;
-      const secondLaneNodes = lanes[(laneIndex + 1) % 6]!;
-      const radialFraction =
-        0.28 + randomAt(config.seed, 'topology-v11.1-braid-depth', branch) * 0.48;
-      const firstNode =
-        firstLaneNodes[
-          Math.min(
-            firstLaneNodes.length - 1,
-            Math.round((firstLaneNodes.length - 1) * radialFraction),
-          )
-        ]!;
-      const secondNode =
-        secondLaneNodes[
-          Math.min(
-            secondLaneNodes.length - 1,
-            Math.round((secondLaneNodes.length - 1) * (1 - radialFraction * 0.3)),
-          )
-        ]!;
-      const key = pair(firstNode.id, secondNode.id);
-      if (firstNode !== secondNode && !linked.has(key)) {
-        allow(firstNode, secondNode, true);
-        linked.add(key);
-      }
-    }
-  }
   for (const entrance of entrances) {
-    const node = lanes[entrance.side]!.at(-1)!;
+    const node = entryNodes[entrance.side]!;
     for (const id of entrance.footprintCellIds) {
       const owner = occupied.get(id);
       if (!owner && !node.group.locked) {
@@ -284,9 +322,10 @@ function topologyAttempt(
     if (entrance.footprintCellIds.every((id) => occupied.get(id) === node.id))
       node.group.fixed = true;
   }
-  const roots = lanes.map((lane) => lane[0]!),
+  const roots = entryNodes,
     sideCells = centralSideCells(cells, centerPolygon),
-    usedRoots = new Set<Node>();
+    usedRoots = new Set<Node>(),
+    portalRoots = nodes.filter((node) => node.entrySide === undefined);
   const angularCost = (root: Node, side: number): number => {
     const a = centerPolygon[side]!,
       b = centerPolygon[(side + 1) % 5]!,
@@ -294,13 +333,16 @@ function topologyAttempt(
       y = (a.y + b.y) / 2 - center.y;
     const rx = root.point.x - center.x,
       ry = root.point.y - center.y;
-    return 1 - (x * rx + y * ry) / (Math.hypot(x, y) * Math.hypot(rx, ry));
+    const angular = 1 - (x * rx + y * ry) / (Math.hypot(x, y) * Math.hypot(rx, ry));
+    return distance(root.point, { x: x + center.x, y: y + center.y }) * 0.7 + angular * 0.18;
   };
   const ownedSides = sideCells
     .map((ids, side) => ({ ids, side }))
     .filter((item) => item.ids.size > 0 && [...item.ids].every((id) => occupied.has(id)))
     .map((item) => item.side);
-  const freeRoots = roots.filter((root) => !root.group.locked && !root.group.fixed),
+  const freeRoots = (portalRoots.length ? portalRoots : nodes).filter(
+      (root) => !root.group.locked && !root.group.fixed,
+    ),
     candidates = sideCells
       .map((ids, side) => ({ ids, side }))
       .filter((item) => item.ids.size > 0 && !ownedSides.includes(item.side))
@@ -335,12 +377,13 @@ function topologyAttempt(
   sideCells.forEach((ids, side) => {
     if (!selectedSides.has(side) || [...ids].every((id) => occupied.has(id))) return;
 
-    const candidates = roots.filter(
-      (root) => !root.group.locked && !root.group.fixed && !usedRoots.has(root),
-    );
+    const availableRoots = portalRoots.length ? portalRoots : nodes,
+      candidates = availableRoots.filter(
+        (root) => !root.group.locked && !root.group.fixed && !usedRoots.has(root),
+      );
     const pool = candidates.length
       ? candidates
-      : roots.filter((root) => !root.group.locked && !root.group.fixed);
+      : availableRoots.filter((root) => !root.group.locked && !root.group.fixed);
     const root =
       portAssignments.get(side) ??
       pool.sort((a, b) => angularCost(a, side) - angularCost(b, side))[0];
@@ -359,7 +402,7 @@ function topologyAttempt(
     });
   });
   for (const entrance of entrances) {
-    const node = lanes[entrance.side]!.at(-1)!;
+    const node = entryNodes[entrance.side]!;
     entrance.cellIds.forEach((id) => {
       const owner = occupied.get(id);
       if (!owner) {
@@ -387,30 +430,39 @@ function topologyAttempt(
       .flatMap((side) => [...side].map((id) => occupied.get(id)))
       .filter((id): id is string => id !== undefined),
   );
-  for (const root of roots)
-    if (!portalOwners.has(root.id)) {
-      const neighbors = roots
-        .filter((other) => other !== root && portalOwners.has(other.id))
-        .sort((a, b) => distance(a.point, root.point) - distance(b.point, root.point));
-      if (neighbors[0]) allow(root, neighbors[0], true);
-      if (config.paths.loop && neighbors[1]) allow(root, neighbors[1], true);
-    }
-  const outer = new Set(
-    Array.from({ length: 6 }, (_, side) => boundaryCells(cells, side)).flatMap((list) =>
-      list.map((cell) => cell.id),
-    ),
+  const primaryPortal = [...portalOwners].sort(
+    (a, b) =>
+      distance(nodes.find((node) => node.id === a)!.point, center) -
+        distance(nodes.find((node) => node.id === b)!.point, center) || compareText(a, b),
+  )[0];
+  const networkLinks = buildPathNetwork(
+    config.seed,
+    nodes.map((node) => ({ id: node.id, point: node.point })),
+    primaryPortal ? [primaryPortal] : [],
+    config.paths.loop,
+    entryNodes.map((node) => node.id),
   );
-  const canClaim = (node: Node, id: string): boolean => {
+  for (const link of networkLinks) {
+    const from = nodes.find((node) => node.id === link.from),
+      to = nodes.find((node) => node.id === link.to);
+    if (from && to) allow(from, to, true);
+  }
+  const canClaim = (node: Node, id: string, allowNaturalContacts = false): boolean => {
     const cell = map.get(id)!;
     if (!cell.surfacePolygons.length || cell.landscapeOnly) return false;
     const owner = occupied.get(id);
     if (owner) return owner === node.id;
     if (node.group.locked || node.group.fixed) return false;
     if (outer.has(id) || cell.entranceSide !== undefined) return false;
-    return cell.neighbors.every((next) => {
-      const other = occupied.get(next);
-      return !other || other === node.id || allowed.has(pair(node.id, other));
-    });
+    // Let compact cores meet naturally; restricting core growth to planned tree edges
+    // produced narrow single-cell connectors and blocked dense but valid layouts.
+    return (
+      allowNaturalContacts ||
+      cell.neighbors.every((next) => {
+        const other = occupied.get(next);
+        return !other || other === node.id || allowed.has(pair(node.id, other));
+      })
+    );
   };
   const claim = (node: Node, ids: Iterable<string>): void => {
     for (const id of ids)
@@ -419,17 +471,30 @@ function topologyAttempt(
         occupied.set(id, node.id);
       }
   };
-  const growCompactGroups = (): void => {
+  const autoCount = Math.max(1, target - manual.length),
+    compactTarget = Math.max(
+      MIN_FIELD_AREA,
+      Math.min(
+        0.11,
+        fieldArea(
+          cells.map((cell) => cell.id),
+          map,
+        ) /
+          (autoCount * 1.8),
+      ),
+    );
+  const growCompactGroups = (minimumArea = MIN_FIELD_AREA, allowNaturalContacts = false): void => {
     for (let round = 0; round < cells.length; round++) {
       let progress = false;
       for (const node of nodes)
         if (
           !node.group.locked &&
+          !node.group.fixed &&
           node.group.ids.size &&
-          fieldArea(node.group.ids, map) + 1e-10 < MIN_FIELD_AREA
+          fieldArea(node.group.ids, map) + 1e-10 < minimumArea
         ) {
           const candidate = compactCandidate(node.group, occupied, map, config.seed, (id) =>
-            canClaim(node, id),
+            canClaim(node, id, allowNaturalContacts),
           );
           if (candidate) {
             claim(node, [candidate]);
@@ -442,7 +507,7 @@ function topologyAttempt(
   for (const node of nodes)
     if (!node.group.ids.size && !node.group.locked) {
       const candidate = cells
-        .filter((cell) => canClaim(node, cell.id))
+        .filter((cell) => canClaim(node, cell.id, target > 13))
         .sort(
           (a, b) =>
             distance(a.center, node.point) - distance(b.center, node.point) ||
@@ -450,9 +515,8 @@ function topologyAttempt(
         )[0];
       if (candidate) claim(node, [candidate.id]);
     }
-  // Seed each field as a compact patch before routing between them. This keeps a lane connection
-  // from becoming the thin stem that determines the whole field's shape.
-  growCompactGroups();
+  // Grow actual area cores before routing so roads cannot become the field's only thin body.
+  growCompactGroups(compactTarget, target > 13);
   for (const node of nodes)
     if (!node.group.locked && node.group.ids.size) {
       for (let i = 0; i < cells.length; i++) {
@@ -515,9 +579,13 @@ function topologyAttempt(
       middle = findPivots();
     }
     if (path.length && candidates.length) {
-      const pivot = candidates.sort(
-        (x, y) => Math.abs(x - middle.length / 2) - Math.abs(y - middle.length / 2),
-      )[0]!;
+      const pivotScore = (pivot: number): number => {
+        const first = new Set([...a.group.ids, ...middle.slice(0, pivot)]),
+          second = new Set([...b.group.ids, ...middle.slice(pivot)]),
+          compactness = Math.max(clusterCompactness(first, map), clusterCompactness(second, map));
+        return compactness + Math.abs(pivot - middle.length / 2) * 1e-4;
+      };
+      const pivot = candidates.sort((x, y) => pivotScore(x) - pivotScore(y))[0]!;
       middle.forEach((id, i) => claim(i < pivot ? a : b, [id]));
     }
     return adjacent(a, b);
@@ -588,7 +656,7 @@ function topologyAttempt(
       }
     if (!progress) break;
   }
-  // Shift a lane boundary outward when a central port is just one raster piece short of its area.
+  // Borrow a safe neighboring raster piece if a center portal still falls short of its area.
   const protectedIds = new Set([
     ...sideCells.flatMap((side) => [...side]),
     ...entrances.flatMap((entrance) => entrance.cellIds),
@@ -666,7 +734,7 @@ function topologyAttempt(
       }
     if (!progress) break;
   }
-  // Coarse lattices can block a straight lane; explicitly reroute its branch to a reachable junction.
+  // Coarse lattices can block a planned branch; reroute it to a reachable junction.
   for (let round = 0; round < nodes.length; round++) {
     const reached = new Set<string>();
     sideCells.forEach((side) =>
@@ -797,6 +865,61 @@ function validLayout(
   return reached.size === clusters.length;
 }
 
+/** Removes dispensable route tendrils while keeping every field and connection valid. */
+function trimFieldTendrils(
+  clusters: FieldCluster[],
+  cells: TileCell[],
+  entrances: Entrance[],
+  centerPolygon: Point[],
+): void {
+  const map = new Map(cells.map((cell) => [cell.id, cell])),
+    protectedIds = new Set([
+      ...Array.from({ length: 6 }, (_, side) => boundaryCells(cells, side)).flatMap((side) =>
+        side.map((cell) => cell.id),
+      ),
+      ...centralSideCells(cells, centerPolygon).flatMap((side) => [...side]),
+      ...entrances.flatMap((entrance) => entrance.footprintCellIds),
+    ]);
+  for (const group of clusters) {
+    if (group.locked || group.fixed) continue;
+    for (let round = 0; round < group.ids.size; round++) {
+      const current = clusterCompactness(group.ids, map);
+      if (current <= 3.5) break;
+      const anchor = fieldAnchor(group.ids, map);
+      const candidates = [...group.ids]
+        .filter((id) => !protectedIds.has(id))
+        .map((id) => ({
+          id,
+          neighbors: map.get(id)!.neighbors.filter((next) => group.ids.has(next)).length,
+          distance: Math.hypot(map.get(id)!.center.x - anchor.x, map.get(id)!.center.y - anchor.y),
+        }))
+        .sort(
+          (a, b) => a.neighbors - b.neighbors || b.distance - a.distance || compareText(a.id, b.id),
+        );
+      let removed = false;
+      for (const candidate of candidates) {
+        group.ids.delete(candidate.id);
+        const area = fieldArea(group.ids, map);
+        if (area + 1e-10 < MIN_FIELD_AREA) {
+          group.ids.add(candidate.id);
+          continue;
+        }
+        const compactness = clusterCompactness(group.ids, map);
+        if (
+          compactness < current - 1e-8 &&
+          isConnectedSelection([...group.ids], cells) &&
+          validLayout(clusters, cells, entrances, centerPolygon)
+        ) {
+          removed = true;
+          break;
+        }
+        group.ids.add(candidate.id);
+      }
+      if (!removed) break;
+    }
+  }
+}
+
 /** Keep hard geometry constraints even when a requested count cannot be embedded in this lattice. */
 export function buildAutoTopology(
   config: TileConfig,
@@ -806,26 +929,33 @@ export function buildAutoTopology(
   manual: FieldCluster[],
 ): { clusters: FieldCluster[]; warnings: string[] } {
   const first = topologyAttempt(config, cells, entrances, centerPolygon, manual);
-  if (validLayout(first.clusters, cells, entrances, centerPolygon))
+  if (validLayout(first.clusters, cells, entrances, centerPolygon)) {
+    trimFieldTendrils(first.clusters, cells, entrances, centerPolygon);
     return {
       ...first,
       warnings: first.warnings.filter(
         (warning) => !warning.includes('vollständig verbundenen Weggraphen'),
       ),
     };
-  const candidates = [13, 7, ...Array.from({ length: 18 }, (_, i) => 24 - i)].filter(
-    (count, index, list) => count !== config.paths.fieldCount && list.indexOf(count) === index,
-  );
+  }
+  const candidates = Array.from({ length: 18 }, (_, index) => index + 7)
+    .filter((count) => count !== config.paths.fieldCount)
+    .sort(
+      (a, b) =>
+        Math.abs(a - config.paths.fieldCount) - Math.abs(b - config.paths.fieldCount) || a - b,
+    );
   for (const fieldCount of candidates) {
     const candidate = { ...config, paths: { ...config.paths, fieldCount } };
     const fallback = topologyAttempt(candidate, cells, entrances, centerPolygon, manual);
-    if (validLayout(fallback.clusters, cells, entrances, centerPolygon))
+    if (validLayout(fallback.clusters, cells, entrances, centerPolygon)) {
+      trimFieldTendrils(fallback.clusters, cells, entrances, centerPolygon);
       return {
         clusters: fallback.clusters,
         warnings: [
           `Die gewünschte Gesamtzahl ${config.paths.fieldCount} konnte mit diesem Raster und dieser Pentagonposition nicht gültig angeordnet werden; stattdessen sind ${fallback.clusters.length + 1} verbundene Felder möglich. ${config.paths.fieldCount === 7 ? 'Neben sechs festen Eingangsflächen und dem Pentagon wird mindestens ein inneres Verbindungsfeld benötigt; wähle mindestens acht Gesamtfelder.' : 'Wähle ein feineres Raster, eine andere Feldzahl oder eine andere Pentagonposition.'}`,
         ],
       };
+    }
   }
   return {
     clusters: first.clusters,

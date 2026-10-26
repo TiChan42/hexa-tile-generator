@@ -12,6 +12,7 @@ import {
 import type { GeneratedTile } from '../../src/core';
 import { clickWorld, importProject, project } from './helpers';
 import { landscapeSelectionColor } from '../../src/render/selection';
+import { PROJECT_STORAGE_KEY } from '../../src/editor/storage';
 
 test.setTimeout(90000);
 
@@ -165,10 +166,10 @@ test('field shapes can be applied while a custom object model is unavailable', a
   await page.route('**/api/models/model-unavailable', (route) =>
     route.fulfill({ status: 404, json: { error: 'Modell nicht vorhanden.' } }),
   );
-  await page.addInitScript(
-    (value) => localStorage.setItem('hexa-studio-project-v10', JSON.stringify(value)),
-    config,
-  );
+  await page.addInitScript((args) => localStorage.setItem(args.key, JSON.stringify(args.value)), {
+    key: PROJECT_STORAGE_KEY,
+    value: config,
+  });
   await page.goto('/');
   await expect(page.getByRole('status')).toContainText('konnte nicht geladen werden');
   await expect(page.getByRole('button', { name: 'Modelle laden…', exact: true })).toBeDisabled();

@@ -14,6 +14,7 @@ export * from './center';
 export * from './center-sides';
 export * from './connections';
 export * from './topology';
+export * from './path-network';
 export * from './decorations';
 export * from './pathDetails';
 export * from './field-elevation';

@@ -6,7 +6,7 @@ import { buildConnections } from './connections';
 import { applyFieldElevation, terracedSymbolAnchor } from './field-elevation';
 import type { FieldCluster } from './fields';
 import { randomAt } from './random';
-import { sampleGradient } from './color';
+import { ensurePathTerrainContrast, sampleGradient } from './color';
 import type {
   CenterSide,
   Entrance,
@@ -34,6 +34,7 @@ export function buildPaths(
     warnings: string[] = [];
   const inside = cells.filter((cell) => cell.surfacePolygons.length === 0),
     centerSet = new Set(inside.map((cell) => cell.id));
+  const touching = centralSideCells(cells, centerPolygon);
   const centerEdit = config.paths.fields.find((field) => field.id === 'center');
   const centerLevels = applyFieldElevation(
     [...centerSet],
@@ -56,7 +57,12 @@ export function buildPaths(
       cellIds: [...centerSet],
       center: centerAnchor,
       ...centerLevels,
-      color: centerEdit?.color ?? '#e6c777',
+      color:
+        centerEdit?.color ??
+        ensurePathTerrainContrast(
+          '#e6c777',
+          touching.flatMap((side) => [...side].map((id) => map.get(id)!.color)),
+        ),
       action: centerEdit?.action ?? 'event',
       label: centerEdit?.label ?? 'Zentrum',
       isCenter: true,
@@ -72,8 +78,7 @@ export function buildPaths(
     widthCells: entry.widthCells,
     fieldId: null,
   }));
-  const touching = centralSideCells(cells, centerPolygon),
-    clusters: FieldCluster[] = [],
+  const clusters: FieldCluster[] = [],
     occupied = new Map<string, string>();
   const manual = config.paths.enabled
     ? config.paths.fields.filter((field) => field.cellIds.length > 0 && field.id !== 'center')
@@ -142,6 +147,24 @@ export function buildPaths(
     clusters.splice(0, clusters.length, ...generated.clusters);
     warnings.push(...generated.warnings);
   }
+  const terrainColorByCell = new Map(cells.map((cell) => [cell.id, cell.color]));
+  const fieldCellIds = new Set([...centerSet, ...clusters.flatMap((group) => [...group.ids])]);
+  const landscapeColors = (group: FieldCluster): string[] => {
+    const adjacent = [...new Set([...group.ids].flatMap((id) => map.get(id)!.neighbors))]
+      .filter((id) => !fieldCellIds.has(id))
+      .map((id) => terrainColorByCell.get(id)!);
+    if (adjacent.length) return adjacent;
+    const anchor = fieldAnchor(group.ids, map);
+    return cells
+      .filter((cell) => cell.surfacePolygons.length > 0)
+      .map((cell) => ({
+        cell,
+        distance: Math.hypot(cell.center.x - anchor.x, cell.center.y - anchor.y),
+      }))
+      .sort((a, b) => a.distance - b.distance || (a.cell.id < b.cell.id ? -1 : 1))
+      .slice(0, 8)
+      .map(({ cell }) => terrainColorByCell.get(cell.id)!);
+  };
   for (const group of clusters) {
     const ids = [...group.ids],
       edit = config.paths.fields.find(
@@ -162,9 +185,11 @@ export function buildPaths(
       anchor = symbol.point;
       levels.symbolHeight = symbol.height;
     }
-    const color =
-      edit?.color ??
-      sampleGradient(config.paths.gradient, randomAt(config.seed, 'field-color', group.id));
+    const sampledColor = sampleGradient(
+      config.paths.gradient,
+      randomAt(config.seed, 'field-color', group.id),
+    );
+    const color = edit?.color ?? ensurePathTerrainContrast(sampledColor, landscapeColors(group));
     const actions = ['rotate', 'shift', 'event', 'shop', 'scrap', 'jump'] as const;
     const field: GameField = {
       id: group.id,

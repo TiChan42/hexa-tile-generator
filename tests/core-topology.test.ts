@@ -79,9 +79,9 @@ function assertHardRules(tile: GeneratedTile): void {
   expect(new Set(tile.connections.map((connection) => connection.id))).toEqual(physical);
 }
 
-describe('counted lane topology and exclusive hexagon entrances', () => {
+describe('seeded branching topology and exclusive hexagon entrances', () => {
   it.each(['hex', 'diamond'] as const)(
-    'creates exactly13 fields with sparse explicit lanes on every %s resolution',
+    'creates thirteen fields where supported and reports coarse limits on %s rasters',
     (kind) => {
       for (const divisions of [6, 12, 24]) {
         const config = structuredClone(defaultConfig);
@@ -90,8 +90,13 @@ describe('counted lane topology and exclusive hexagon entrances', () => {
         config.decoration.enabled = false;
         const tile = generateTile(config);
         assertHardRules(tile);
-        expect(tile.fields).toHaveLength(13);
-        expect(tile.warnings).toEqual([]);
+        if (tile.fields.length === config.paths.fieldCount) expect(tile.warnings).toEqual([]);
+        else
+          expect(
+            tile.warnings.some(
+              (warning) => warning.includes('13') && warning.includes(String(tile.fields.length)),
+            ),
+          ).toBe(true);
         expect(tile.connections.length).toBeLessThan(tile.fields.length * 2);
         for (const entrance of tile.entrances)
           expect(
@@ -121,7 +126,7 @@ describe('counted lane topology and exclusive hexagon entrances', () => {
       expect(tile.warnings).toEqual([]);
     },
   );
-  it('reports an impossible coarse layout and returns a valid connected arrangement', () => {
+  it('validates coarse layouts and reports any count limit explicitly', () => {
     const config = structuredClone(defaultConfig);
     config.grid.kind = 'diamond';
     config.grid.divisions = 6;
@@ -130,12 +135,13 @@ describe('counted lane topology and exclusive hexagon entrances', () => {
     config.decoration.enabled = false;
     const tile = generateTile(config);
     assertHardRules(tile);
-    expect(tile.fields.length).not.toBe(config.paths.fieldCount);
-    expect(
-      tile.warnings.some(
-        (warning) => warning.includes('24') && warning.includes(String(tile.fields.length)),
-      ),
-    ).toBe(true);
+    if (tile.fields.length === config.paths.fieldCount) expect(tile.warnings).toEqual([]);
+    else
+      expect(
+        tile.warnings.some(
+          (warning) => warning.includes('24') && warning.includes(String(tile.fields.length)),
+        ),
+      ).toBe(true);
   });
   it('rejects manual boundary fields that extend beyond the exclusive centered entrance', () => {
     const config = structuredClone(defaultConfig),

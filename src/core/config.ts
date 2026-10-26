@@ -98,8 +98,8 @@ const fieldList = (schema: z.ZodType<FieldEdit>) =>
 const colorTriplet = z.tuple([hex, hex, hex]);
 export const configSchema = z
   .object({
-    schemaVersion: z.literal(12),
-    generatorVersion: z.literal('12.0.0'),
+    schemaVersion: z.literal(13),
+    generatorVersion: z.literal('13.0.0'),
     name: z.string().trim().min(1).max(80),
     seed: z.string().min(1).max(128),
     editing: z.object({ regeneratePathsOnCenterChange: z.boolean() }).strict(),
@@ -296,6 +296,9 @@ export const configSchema = z
   })
   .strict();
 
+const v12Schema = configSchema
+  .extend({ schemaVersion: z.literal(12), generatorVersion: z.literal('12.0.0') })
+  .strict();
 const v11_1Schema = configSchema
   .extend({
     schemaVersion: z.literal(11),
@@ -306,8 +309,8 @@ const v11_1Schema = configSchema
 const v11_0Schema = v11_1Schema.extend({ generatorVersion: z.literal('11.0.0') }).strict();
 
 export const defaultConfig: TileConfig = {
-  schemaVersion: 12,
-  generatorVersion: '12.0.0',
+  schemaVersion: 13,
+  generatorVersion: '13.0.0',
   name: 'Mooslicht',
   seed: 'mooslicht-42',
   editing: { regeneratePathsOnCenterChange: false },
@@ -527,8 +530,8 @@ function currentConfig(value: unknown): TileConfig {
       Array.isArray(paths.enabledSides) && paths.enabledSides.some((enabled) => enabled === false);
   return configSchema.parse({
     ...record,
-    schemaVersion: 12,
-    generatorVersion: '12.0.0',
+    schemaVersion: 13,
+    generatorVersion: '13.0.0',
     terrain: {
       ...terrain,
       noise: terrain.noise ?? { seed: String(record.seed), origin: { x: 0, y: 0 } },
@@ -549,6 +552,23 @@ export function migrateConfig(value: unknown): ConfigMigration {
     typeof value === 'object' &&
     value !== null &&
     'schemaVersion' in value &&
+    value.schemaVersion === 12 &&
+    'generatorVersion' in value &&
+    value.generatorVersion === '12.0.0'
+  ) {
+    const legacy = v12Schema.parse(value);
+    return {
+      config: configSchema.parse({ ...legacy, schemaVersion: 13, generatorVersion: '13.0.0' }),
+      migrated: true,
+      notices: [
+        'Projekt auf Generator 13 umgestellt. Automatische Spielfelder werden seedbasiert als verzweigtes Wegenetz mit kompakten Feldkernen statt als radiale Streifen aufgebaut. Generierte Feldfarben werden bei Bedarf farblich von der angrenzenden Landschaft abgesetzt; ausdrücklich gespeicherte Farben und Feldformen bleiben erhalten.',
+      ],
+    };
+  }
+  if (
+    typeof value === 'object' &&
+    value !== null &&
+    'schemaVersion' in value &&
     value.schemaVersion === 11 &&
     'generatorVersion' in value &&
     value.generatorVersion === '11.1.0'
@@ -558,7 +578,7 @@ export function migrateConfig(value: unknown): ConfigMigration {
       config: currentConfig(legacy),
       migrated: true,
       notices: [
-        'Projekt auf Generator 12 umgestellt. Baum- und Pilzfarbprofile wurden ergänzt und bleiben zunächst deaktiviert, damit vorhandene Farben gleich bleiben. Bei neuen Projekten werden die Profile seedbasiert durchmischt; Stämme behalten ihre Modellfarben.',
+        'Projekt auf Generator 13 umgestellt. Baum- und Pilzfarbprofile wurden ergänzt und bleiben zunächst deaktiviert, damit vorhandene Farben gleich bleiben. Bei neuen Projekten werden die Profile seedbasiert durchmischt; Stämme behalten ihre Modellfarben.',
       ],
     };
   }
@@ -575,7 +595,7 @@ export function migrateConfig(value: unknown): ConfigMigration {
       config: currentConfig(legacy),
       migrated: true,
       notices: [
-        'Projekt auf Generator 12 umgestellt. Baum- und Pilzfarbprofile wurden ergänzt und bleiben zunächst deaktiviert, damit vorhandene Farben gleich bleiben. Bei neuen Projekten werden die Profile seedbasiert durchmischt; Stämme behalten ihre Modellfarben.',
+        'Projekt auf Generator 13 umgestellt. Baum- und Pilzfarbprofile wurden ergänzt und bleiben zunächst deaktiviert, damit vorhandene Farben gleich bleiben. Bei neuen Projekten werden die Profile seedbasiert durchmischt; Stämme behalten ihre Modellfarben.',
       ],
     };
   }
@@ -592,7 +612,7 @@ export function migrateConfig(value: unknown): ConfigMigration {
       config: currentConfig(legacy),
       migrated: true,
       notices: [
-        'Projekt auf Generator 12 umgestellt. Baum- und Pilzfarbprofile wurden ausgeschaltet ergänzt, damit bestehende Farben erhalten bleiben. Die Terrain-Noise-Koordinaten sind jetzt gespeichert, damit Kacheln im Bulk-Modus auf einem gemeinsamen Perlin-Feld liegen können. Bestehende Kacheln behalten ihr bisheriges Terrain durch ihren Seed und den Ursprung 0.',
+        'Projekt auf Generator 13 umgestellt. Baum- und Pilzfarbprofile wurden ausgeschaltet ergänzt, damit bestehende Farben erhalten bleiben. Die Terrain-Noise-Koordinaten sind jetzt gespeichert, damit Kacheln im Bulk-Modus auf einem gemeinsamen Perlin-Feld liegen können. Bestehende Kacheln behalten ihr bisheriges Terrain durch ihren Seed und den Ursprung 0.',
       ],
     };
   }
@@ -609,7 +629,7 @@ export function migrateConfig(value: unknown): ConfigMigration {
       config: currentConfig(legacy),
       migrated: true,
       notices: [
-        'Projekt auf Generator 12 umgestellt. Baum- und Pilzfarbprofile wurden ausgeschaltet ergänzt, damit bestehende Farben erhalten bleiben. Terrain-Noise-Koordinaten werden ergänzt, damit Kacheln im Bulk-Modus auf einem gemeinsamen Perlin-Feld liegen können. Bestehende Kacheln behalten ihr Terrain durch ihren bisherigen Seed und den Ursprung 0. Neu erzeugte automatische Wegenetze erhalten kompakte Spielfeldgruppen, geschwungene Verbindungen und zusätzliche Querverzweigungen. Alle sechs Außenseiten erhalten einen festen Eingang. Falls ein älteres Projekt Eingänge deaktiviert hatte, ergänzt die Automatik die fehlenden Feldgruppen; die Deaktivierungsoption entfällt. Gespeicherte Feldformen, Aktionen, Farben, Höhen, Objektplatzierungen und Paletten bleiben erhalten.',
+        'Projekt auf Generator 13 umgestellt. Baum- und Pilzfarbprofile wurden ausgeschaltet ergänzt, damit bestehende Farben erhalten bleiben. Terrain-Noise-Koordinaten werden ergänzt, damit Kacheln im Bulk-Modus auf einem gemeinsamen Perlin-Feld liegen können. Bestehende Kacheln behalten ihr Terrain durch ihren bisherigen Seed und den Ursprung 0. Neu erzeugte automatische Wegenetze erhalten kompakte Spielfeldgruppen, geschwungene Verbindungen und zusätzliche Querverzweigungen. Alle sechs Außenseiten erhalten einen festen Eingang. Falls ein älteres Projekt Eingänge deaktiviert hatte, ergänzt die Automatik die fehlenden Feldgruppen; die Deaktivierungsoption entfällt. Gespeicherte Feldformen, Aktionen, Farben, Höhen, Objektplatzierungen und Paletten bleiben erhalten.',
       ],
     };
   }
@@ -630,7 +650,7 @@ export function migrateConfig(value: unknown): ConfigMigration {
       }),
       migrated: true,
       notices: [
-        'Projekt auf Generator 12 umgestellt. Baum- und Pilzfarbprofile wurden ausgeschaltet ergänzt, damit bestehende Farben erhalten bleiben. Ein Noise-Seed aus dem vorhandenen Tile-Seed mit Ursprung 0 wird ergänzt. Einstellungen für Center-Änderungen und gewichtetes Aktionswürfeln wurden ergänzt. Bestehende Felder, Formen, Aktionen, Farben, Höhen, Prüfregeln, Rand, Objektplatzierungen, Paletten und Modellzuordnungen bleiben unverändert. Center-Änderungen erzeugen standardmäßig keinen neuen Wegeplan. Die neuen Gewichte wirken erst beim ausdrücklichen Würfeln; vorhandene Aktionen werden nicht neu ausgewürfelt. Alle sechs Außenseiten erhalten einen festen Eingang. Falls ein älteres Projekt Eingänge deaktiviert hatte, ergänzt die Automatik die fehlenden Feldgruppen; die Deaktivierungsoption entfällt. Vorhandene Dateien bleiben unverändert.',
+        'Projekt auf Generator 13 umgestellt. Baum- und Pilzfarbprofile wurden ausgeschaltet ergänzt, damit bestehende Farben erhalten bleiben. Ein Noise-Seed aus dem vorhandenen Tile-Seed mit Ursprung 0 wird ergänzt. Einstellungen für Center-Änderungen und gewichtetes Aktionswürfeln wurden ergänzt. Bestehende Felder, Formen, Aktionen, Farben, Höhen, Prüfregeln, Rand, Objektplatzierungen, Paletten und Modellzuordnungen bleiben unverändert. Center-Änderungen erzeugen standardmäßig keinen neuen Wegeplan. Die neuen Gewichte wirken erst beim ausdrücklichen Würfeln; vorhandene Aktionen werden nicht neu ausgewürfelt. Alle sechs Außenseiten erhalten einen festen Eingang. Falls ein älteres Projekt Eingänge deaktiviert hatte, ergänzt die Automatik die fehlenden Feldgruppen; die Deaktivierungsoption entfällt. Vorhandene Dateien bleiben unverändert.',
       ],
     };
   }
@@ -652,7 +672,7 @@ export function migrateConfig(value: unknown): ConfigMigration {
       }),
       migrated: true,
       notices: [
-        'Projekt auf Generator 12 umgestellt. Baum- und Pilzfarbprofile wurden ausgeschaltet ergänzt, damit bestehende Farben erhalten bleiben. Ein Noise-Seed aus dem vorhandenen Tile-Seed mit Ursprung 0 wird ergänzt. Ein deaktivierter optionaler Außenrand wurde ergänzt, damit die bisherige Ausgabe unverändert bleibt. Alle Felder, Formen, Aktionen, Farben, Höhen, Prüfregeln, Objektplatzierungen, Paletten und Modellzuordnungen wurden unverändert übernommen. Ein später aktivierter Rand blendet nur überlappende Objekte aus; gespeicherte Platzierungen bleiben erhalten und erscheinen nach dem Deaktivieren wieder. Die neuen Aktionsgewichte wirken erst beim ausdrücklichen Würfeln; Center-Änderungen erzeugen standardmäßig keinen neuen Wegeplan. Alle sechs Außenseiten erhalten einen festen Eingang. Falls ein älteres Projekt Eingänge deaktiviert hatte, ergänzt die Automatik die fehlenden Feldgruppen; die Deaktivierungsoption entfällt. Vorhandene Dateien bleiben unverändert.',
+        'Projekt auf Generator 13 umgestellt. Baum- und Pilzfarbprofile wurden ausgeschaltet ergänzt, damit bestehende Farben erhalten bleiben. Ein Noise-Seed aus dem vorhandenen Tile-Seed mit Ursprung 0 wird ergänzt. Ein deaktivierter optionaler Außenrand wurde ergänzt, damit die bisherige Ausgabe unverändert bleibt. Alle Felder, Formen, Aktionen, Farben, Höhen, Prüfregeln, Objektplatzierungen, Paletten und Modellzuordnungen wurden unverändert übernommen. Ein später aktivierter Rand blendet nur überlappende Objekte aus; gespeicherte Platzierungen bleiben erhalten und erscheinen nach dem Deaktivieren wieder. Die neuen Aktionsgewichte wirken erst beim ausdrücklichen Würfeln; Center-Änderungen erzeugen standardmäßig keinen neuen Wegeplan. Alle sechs Außenseiten erhalten einen festen Eingang. Falls ein älteres Projekt Eingänge deaktiviert hatte, ergänzt die Automatik die fehlenden Feldgruppen; die Deaktivierungsoption entfällt. Vorhandene Dateien bleiben unverändert.',
       ],
     };
   }
@@ -675,7 +695,7 @@ export function migrateConfig(value: unknown): ConfigMigration {
       }),
       migrated: true,
       notices: [
-        'Projekt auf Generator 12 umgestellt. Baum- und Pilzfarbprofile wurden ausgeschaltet ergänzt, damit bestehende Farben erhalten bleiben. Ein Noise-Seed aus dem vorhandenen Tile-Seed mit Ursprung 0 wird ergänzt. Einstellbare Prüfregeln und ein deaktivierter optionaler Außenrand wurden ergänzt. Alle Felder, Aktionen, Farben, Höhen, Objektplatzierungen und Modellzuordnungen wurden unverändert übernommen. Ein später aktivierter Rand blendet überlappende Objekte nur aus und entfernt keine gespeicherten Platzierungen. Bearbeiten bleibt möglich; der Export prüft standardmäßig Mindestfläche und Verbindungen. Die neuen Aktionsgewichte wirken erst beim ausdrücklichen Würfeln; Center-Änderungen erzeugen standardmäßig keinen neuen Wegeplan. Alle sechs Außenseiten erhalten einen festen Eingang. Falls ein älteres Projekt Eingänge deaktiviert hatte, ergänzt die Automatik die fehlenden Feldgruppen; die Deaktivierungsoption entfällt. Vorhandene Dateien bleiben unverändert.',
+        'Projekt auf Generator 13 umgestellt. Baum- und Pilzfarbprofile wurden ausgeschaltet ergänzt, damit bestehende Farben erhalten bleiben. Ein Noise-Seed aus dem vorhandenen Tile-Seed mit Ursprung 0 wird ergänzt. Einstellbare Prüfregeln und ein deaktivierter optionaler Außenrand wurden ergänzt. Alle Felder, Aktionen, Farben, Höhen, Objektplatzierungen und Modellzuordnungen wurden unverändert übernommen. Ein später aktivierter Rand blendet überlappende Objekte nur aus und entfernt keine gespeicherten Platzierungen. Bearbeiten bleibt möglich; der Export prüft standardmäßig Mindestfläche und Verbindungen. Die neuen Aktionsgewichte wirken erst beim ausdrücklichen Würfeln; Center-Änderungen erzeugen standardmäßig keinen neuen Wegeplan. Alle sechs Außenseiten erhalten einen festen Eingang. Falls ein älteres Projekt Eingänge deaktiviert hatte, ergänzt die Automatik die fehlenden Feldgruppen; die Deaktivierungsoption entfällt. Vorhandene Dateien bleiben unverändert.',
       ],
     };
   }
@@ -699,7 +719,7 @@ export function migrateConfig(value: unknown): ConfigMigration {
       }),
       migrated: true,
       notices: [
-        'Projekt auf Generator 12 umgestellt. Baum- und Pilzfarbprofile wurden ausgeschaltet ergänzt, damit bestehende Farben erhalten bleiben. Ein Noise-Seed aus dem vorhandenen Tile-Seed mit Ursprung 0 wird ergänzt. Höhenwechsel werden als Stufen mit senkrechten Wänden dargestellt. Prüfregeln und ein deaktivierter optionaler Außenrand werden ergänzt; die obsolete Rampenbreite entfällt; alle Felder, Aktionen, Farben, Höhen, Objektplatzierungen und Modellzuordnungen wurden unverändert übernommen. Ein später aktivierter Rand blendet überlappende Objekte nur aus und entfernt keine gespeicherten Platzierungen. Die neuen Aktionsgewichte wirken erst beim ausdrücklichen Würfeln; Center-Änderungen erzeugen standardmäßig keinen neuen Wegeplan. Alle sechs Außenseiten erhalten einen festen Eingang. Falls ein älteres Projekt Eingänge deaktiviert hatte, ergänzt die Automatik die fehlenden Feldgruppen; die Deaktivierungsoption entfällt. Vorhandene Dateien bleiben unverändert.',
+        'Projekt auf Generator 13 umgestellt. Baum- und Pilzfarbprofile wurden ausgeschaltet ergänzt, damit bestehende Farben erhalten bleiben. Ein Noise-Seed aus dem vorhandenen Tile-Seed mit Ursprung 0 wird ergänzt. Höhenwechsel werden als Stufen mit senkrechten Wänden dargestellt. Prüfregeln und ein deaktivierter optionaler Außenrand werden ergänzt; die obsolete Rampenbreite entfällt; alle Felder, Aktionen, Farben, Höhen, Objektplatzierungen und Modellzuordnungen wurden unverändert übernommen. Ein später aktivierter Rand blendet überlappende Objekte nur aus und entfernt keine gespeicherten Platzierungen. Die neuen Aktionsgewichte wirken erst beim ausdrücklichen Würfeln; Center-Änderungen erzeugen standardmäßig keinen neuen Wegeplan. Alle sechs Außenseiten erhalten einen festen Eingang. Falls ein älteres Projekt Eingänge deaktiviert hatte, ergänzt die Automatik die fehlenden Feldgruppen; die Deaktivierungsoption entfällt. Vorhandene Dateien bleiben unverändert.',
       ],
     };
   }
@@ -752,7 +772,7 @@ export function migrateConfig(value: unknown): ConfigMigration {
       }),
       migrated: true,
       notices: [
-        'Projekt auf Generator 12 umgestellt. Baum- und Pilzfarbprofile wurden ausgeschaltet ergänzt, damit bestehende Farben erhalten bleiben. Ein Noise-Seed aus dem vorhandenen Tile-Seed mit Ursprung 0 wird ergänzt. Mittige Pentagon-Portale mit Landschaftsecken, feste Eingangsfelder und Stufen mit senkrechten Wänden. Wege und Platzierungen werden neu aufgebaut; Prüfregeln und ein deaktivierter optionaler Außenrand werden ergänzt. Die neuen Aktionsgewichte wirken erst beim ausdrücklichen Würfeln; Center-Änderungen erzeugen standardmäßig keinen neuen Wegeplan. Alle sechs Außenseiten erhalten einen festen Eingang. Falls ein älteres Projekt Eingänge deaktiviert hatte, ergänzt die Automatik die fehlenden Feldgruppen; die Deaktivierungsoption entfällt. Vorhandene Dateien bleiben unverändert.',
+        'Projekt auf Generator 13 umgestellt. Baum- und Pilzfarbprofile wurden ausgeschaltet ergänzt, damit bestehende Farben erhalten bleiben. Ein Noise-Seed aus dem vorhandenen Tile-Seed mit Ursprung 0 wird ergänzt. Mittige Pentagon-Portale mit Landschaftsecken, feste Eingangsfelder und Stufen mit senkrechten Wänden. Wege und Platzierungen werden neu aufgebaut; Prüfregeln und ein deaktivierter optionaler Außenrand werden ergänzt. Die neuen Aktionsgewichte wirken erst beim ausdrücklichen Würfeln; Center-Änderungen erzeugen standardmäßig keinen neuen Wegeplan. Alle sechs Außenseiten erhalten einen festen Eingang. Falls ein älteres Projekt Eingänge deaktiviert hatte, ergänzt die Automatik die fehlenden Feldgruppen; die Deaktivierungsoption entfällt. Vorhandene Dateien bleiben unverändert.',
       ],
     };
   }

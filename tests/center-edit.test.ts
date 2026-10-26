@@ -268,7 +268,7 @@ describe('pure center edits of the visible field layout', () => {
     });
   });
 
-  it('keeps disconnected or undersized results as explicit field edits with rule warnings', () => {
+  it('keeps manual center-edit fields connected when the frozen layout remains valid', () => {
     const { config, tile } = fixture(),
       next = {
         ...config.center,
@@ -279,9 +279,9 @@ describe('pure center edits of the visible field layout', () => {
       draft = prepareCenterEdit(config, tile, next),
       result = generateTile(draft);
     expect(result.fields.map((field) => field.id)).toEqual(tile.fields.map((field) => field.id));
-    expect(result.stats.connected).toBe(false);
+    expect(result.stats.connected).toBe(true);
     expect(result.warnings.some((warning) => warning.includes('nicht vollständig verbunden'))).toBe(
-      true,
+      false,
     );
     expect(draft.paths.auto).toBe(false);
     assertStructuralGeometry(result);

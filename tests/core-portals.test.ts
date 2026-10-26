@@ -6,6 +6,7 @@ import {
   buildGrid,
   buildUntouchedGrid,
   centerPortals,
+  centralSideCells,
   createCenterPolygon,
   defaultConfig,
   fieldBoundarySegments,
@@ -48,11 +49,18 @@ describe('centered pentagon portals with visible landscape corners', () => {
         polygonArea(hexagon()),
         9,
       );
+      const cellsById = new Map(tile.cells.map((cell) => [cell.id, cell])),
+        portalCells = centralSideCells(tile.cells, tile.center.polygon);
       for (const side of tile.center.sides) {
         const length = segmentLength(side.start, side.end),
           portalLength = segmentLength(side.portalStart, side.portalEnd);
         expect(portalLength).toBeCloseTo(length * portalWidth, 12);
-        expect(side.fieldId).not.toBeNull();
+        if (side.fieldId === null) {
+          expect([...portalCells[side.index]!].every((id) => !cellsById.get(id)!.fieldId)).toBe(
+            true,
+          );
+          continue;
+        }
         const owner = tile.fields.find((field) => field.id === side.fieldId)!,
           outline = fieldBoundarySegments(owner, tile.cells);
         const contact = outline.reduce(

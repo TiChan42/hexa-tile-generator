@@ -52,8 +52,8 @@ export interface MushroomColorProfile {
   cap: [string, string, string];
 }
 export interface TileConfig {
-  schemaVersion: 12;
-  generatorVersion: '12.0.0';
+  schemaVersion: 13;
+  generatorVersion: '13.0.0';
   name: string;
   seed: string;
   editing: { regeneratePathsOnCenterChange: boolean };

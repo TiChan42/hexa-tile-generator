@@ -133,7 +133,7 @@ async function persistTile(
   value: unknown,
 ): Promise<TileManifest & { existing: boolean }> {
   const request = tileRequest.parse(value);
-  // Saving couples an already-rendered PNG to its exact current-format configuration (schema 12 / generator 12.0.0).
+  // Saving couples an already-rendered PNG to its exact current-format configuration (schema 13 / generator 13.0.0).
   // Legacy imports must be migrated and rendered in the editor before this endpoint.
   const config = configSchema.parse(request.config);
   const png = decodePng(request.png, config.export.size);

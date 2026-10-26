@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { defaultConfig, DECORATION_KINDS } from '../../src/core';
+import { PROJECT_STORAGE_KEY } from '../../src/editor/storage';
 
 test.setTimeout(60000);
 
@@ -79,7 +80,8 @@ for (const path of ['/', '/index.html', '/editor']) {
     await expect
       .poll(() =>
         page.evaluate(
-          () => JSON.parse(localStorage.getItem('hexa-studio-project-v10') ?? 'null')?.seed,
+          (key) => JSON.parse(localStorage.getItem(key) ?? 'null')?.seed,
+          PROJECT_STORAGE_KEY,
         ),
       )
       .toBe(seed);
@@ -109,7 +111,8 @@ test('pending autosaves survive immediate home navigation and reload', async ({ 
   await seed.fill('pending-home-link');
   expect(
     await page.evaluate(
-      () => JSON.parse(localStorage.getItem('hexa-studio-project-v10') ?? 'null')?.seed,
+      (key) => JSON.parse(localStorage.getItem(key) ?? 'null')?.seed,
+      PROJECT_STORAGE_KEY,
     ),
   ).not.toBe('pending-home-link');
   await page.getByRole('link', { name: 'Hexa Studio Startseite' }).click();
@@ -118,7 +121,8 @@ test('pending autosaves survive immediate home navigation and reload', async ({ 
   await seed.fill('pending-reload');
   expect(
     await page.evaluate(
-      () => JSON.parse(localStorage.getItem('hexa-studio-project-v10') ?? 'null')?.seed,
+      (key) => JSON.parse(localStorage.getItem(key) ?? 'null')?.seed,
+      PROJECT_STORAGE_KEY,
     ),
   ).not.toBe('pending-reload');
   await page.reload();
@@ -129,7 +133,7 @@ test('pending autosaves survive immediate home navigation and reload', async ({ 
 test('an invalid browser autosave falls back to a usable default project', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
-  await page.addInitScript(() => localStorage.setItem('hexa-studio-project-v10', '{broken-json'));
+  await page.addInitScript((key) => localStorage.setItem(key, '{broken-json'), PROJECT_STORAGE_KEY);
   await page.goto('/');
   await expect(page.getByLabel('Seed', { exact: true })).toHaveValue(defaultConfig.seed);
   await expect(page.getByRole('button', { name: 'PNG exportieren', exact: true })).toBeEnabled({
@@ -137,7 +141,7 @@ test('an invalid browser autosave falls back to a usable default project', async
   });
   await expect
     .poll(async () => {
-      const value = await page.evaluate(() => localStorage.getItem('hexa-studio-project-v10'));
+      const value = await page.evaluate((key) => localStorage.getItem(key), PROJECT_STORAGE_KEY);
       try {
         return JSON.parse(value ?? 'null');
       } catch {

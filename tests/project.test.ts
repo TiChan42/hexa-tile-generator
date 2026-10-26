@@ -154,6 +154,25 @@ describe('complete seed-based editable projects', () => {
   });
 });
 describe('explicit config migration', () => {
+  it('strictly migrates V12 to V13 without changing saved field data or preferences', () => {
+    const legacy = {
+      ...structuredClone(defaultConfig),
+      schemaVersion: 12 as const,
+      generatorVersion: '12.0.0' as const,
+    };
+    legacy.paths.fields = [
+      { id: 'saved-field', cellIds: ['h:2:3'], action: 'shop', color: '#aabbcc', label: 'Markt' },
+    ];
+    const result = migrateConfig(legacy);
+    expect(result.migrated).toBe(true);
+    expect(result.config.schemaVersion).toBe(13);
+    expect(result.config.generatorVersion).toBe('13.0.0');
+    expect(result.config.paths.fields).toEqual(legacy.paths.fields);
+    expect(result.config.paths.fieldCount).toBe(legacy.paths.fieldCount);
+    expect(result.config.decoration.colorProfiles).toEqual(legacy.decoration.colorProfiles);
+    expect(result.notices.join(' ')).toContain('verzweigtes Wegenetz');
+    expect(() => migrateConfig({ ...legacy, unexpected: true })).toThrow();
+  });
   it('migrates v1 without mutating source, keeps original center geometry and reports changed rules', () => {
     const legacy = legacyProject(),
       before = JSON.stringify(legacy),

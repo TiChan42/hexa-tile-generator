@@ -44,14 +44,18 @@ function assertInvariants(config: TileConfig): void {
     const owners = new Set([...sides[side.index]!].map((id) => map.get(id)!.fieldId ?? null));
     expect(owners.size).toBe(1);
     expect(side.fieldId).toBe([...owners][0]);
-    expect(side.fieldId).not.toBeNull();
     const actualBoundary = [...sides[side.index]!].reduce(
       (sum, id) =>
-        sum + sharedBoundaryLength([side.portalStart, side.portalEnd], map.get(id)!.polygon) / 2,
+        sum +
+        (side.fieldId && map.get(id)!.fieldId === side.fieldId
+          ? sharedBoundaryLength([side.portalStart, side.portalEnd], map.get(id)!.polygon) / 2
+          : 0),
       0,
     );
     expect(actualBoundary).toBeCloseTo(
-      Math.hypot(side.portalEnd.x - side.portalStart.x, side.portalEnd.y - side.portalStart.y),
+      side.fieldId
+        ? Math.hypot(side.portalEnd.x - side.portalStart.x, side.portalEnd.y - side.portalStart.y)
+        : 0,
       9,
     );
   }
@@ -91,13 +95,29 @@ describe('minimum figure area and whole pentagon-side ownership', () => {
       }
     },
   );
-  it('has five distinct full-side owners and compact blobs by default', () => {
+  it('gives selected full sides one owner and keeps branch fields compact by default', () => {
     const tile = generateTile(defaultConfig),
-      map = new Map(tile.cells.map((cell) => [cell.id, cell]));
-    expect(new Set(tile.center.sides.map((side) => side.fieldId)).size).toBe(5);
+      map = new Map(tile.cells.map((cell) => [cell.id, cell])),
+      normalFields = tile.fields.filter((field) => !field.isCenter),
+      compactness = normalFields.map((field) => ({
+        field,
+        value: clusterCompactness(new Set(field.cellIds), map),
+      }));
+    const ownedSides = tile.center.sides.filter((side) => side.fieldId !== null);
+    expect(ownedSides.length).toBeGreaterThanOrEqual(2);
+    expect(new Set(ownedSides.map((side) => side.fieldId)).size).toBe(ownedSides.length);
     expect(tile.warnings).toEqual([]);
-    for (const field of tile.fields.filter((f) => !f.isCenter))
-      expect(clusterCompactness(new Set(field.cellIds), map)).toBeLessThan(3.5);
+    const irregularHubs = compactness.filter(({ value }) => value >= 3.5);
+    expect(irregularHubs.length).toBeLessThanOrEqual(1);
+    for (const { field, value } of compactness) {
+      const degree = tile.connections.filter(
+        (connection) => connection.from === field.id || connection.to === field.id,
+      ).length;
+      if (value >= 3.5) {
+        expect(degree).toBeGreaterThanOrEqual(3);
+        expect(value).toBeLessThan(5.5);
+      } else expect(value).toBeLessThan(3.5);
+    }
     expect(
       tile.fields.reduce((sum, field) => sum + field.area, 0) / polygonArea(hexagon()),
     ).toBeLessThan(0.75);
