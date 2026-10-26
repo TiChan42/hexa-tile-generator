@@ -1,0 +1,90 @@
+# Hexa Studio
+
+Ein lokaler 3D-Editor für deterministisch erzeugte, hexagonale Brettspielkacheln. Aus Seed und Konfiguration entstehen ein abgeschnittenes Hexagon- oder Rautenraster, terrassierte Landschaft, verbundene Wege, ein Zentralpentagon mit eindeutigen Seitenanschlüssen, Pixelart-Aktionen und Voxelobjekte.
+
+## Starten
+
+Voraussetzung: Node.js ≥ 22.12 und npm.
+
+```sh
+npm ci
+npm run dev
+```
+
+Editor: **http://127.0.0.1:5173**. Es werden keine Cloudkonten oder externen Dienste benötigt. Schriftarten und Modelle liegen lokal im Repo.
+
+Produktionsbetrieb mit funktionierender Working-Ablage:
+
+```sh
+npm start
+```
+
+Danach **http://127.0.0.1:4173** öffnen. `npm start` erstellt zuerst einen aktuellen Produktionsbuild und startet anschließend den lokalen Server für Editor, Modelle und Working-Ablage. Das funktioniert auch ohne vorhandenen `dist/`-Ordner. `npm run preview` verwendet denselben vollständigen Start; auch dort funktionieren Import und Speicherung. `PORT` kann bei beiden Befehlen den Produktionsport ändern.
+
+Der Browser-Einstieg ist `/`: `index.html` lädt `src/main.tsx`, das den React-Editor in `#root` startet. Der Produktionsbuild ersetzt den TypeScript-Einstieg durch die gebündelten Dateien unter `dist/assets/`. Direkte Aufrufe von `/index.html` und der SPA-Adresse `/editor` starten denselben Editor; der Link im Logo führt zu `/` und behält das gespeicherte Projekt.
+
+## Benutzung
+
+**Komplett aus Seed** erzeugt Raster, Landschaft, Pentagon, Wegenetz, Feldfarben, Aktionen und Objekte in einem Schritt. Sechs Landschaftsthemen und ihre Parameter werden aus dem Seed gewählt. Passende Artenmischungen ergänzen etwa Farn und Pilze im Mooswald, Weiden und Schilf im Moor sowie Amethyst und Bergkristall in den Kristall- und Frostgebieten. Raster, Bildgröße, Kamera, Feldzahl, Anschlussbreite und das gewählte Höhenprofil bleiben erhalten. Die festen Eingangsflächen ändern sich bei gleicher Rasterkonfiguration nicht mit dem Seed. Der Würfel neben dem Seed erzeugt direkt eine neue vollständige Kachel.
+
+Das Ergebnis ist anschließend vollständig im Editor bearbeitbar. Die erzeugten Spielfelder werden als konkrete Zellgruppen mit ihrer Aktionszuordnung gespeichert; ihre Farben bleiben über Seed und Farbverlauf bestimmt, bis eine eigene Feldfarbe gesetzt wird. Objekte werden als einzelne Platzierungen gespeichert. Ein Klick auf **Komplett aus Seed** stellt dieselbe Ausgangskachel wieder her; **Rückgängig** stellt den vorherigen Bearbeitungsstand wieder her.
+
+1. **Raster:** Ausgabegröße (standardmäßig 1080 × 1080), Zellform, Auflösung und Subraster festlegen. Neue Projekte starten mit dem feineren Raster mit 18 Unterteilungen. Änderungen von Zellform oder Auflösung setzen manuelle Felder und Objektplatzierungen zurück.
+2. **Landschaft:** Höhen, Oktaven, Frequenz, Persistenz und Farbstopps einstellen. Die Materialtextur kombiniert grobes mehrschichtiges Perlin-Noise, eine unabhängig einstellbare feinere Perlin-Maserung und abschließende Pixelkörnung. Flächen, Wege und Wände verwenden denselben Aufbau. Unter **Tile-Außenrand** lassen sich Aktivierung, Dicke und Darstellung der Randlinie wählen: Schwarz, eigene Hexfarbe, wie die Spielfeldränder oder durchsichtig. **Außenrand einstellen** rechts springt direkt zu diesen Reglern. Wege unterbrechen die Linie bis zur Außenkante. Auch bei durchsichtiger Linie bleibt die Randzone objektfrei; der Boden selbst bleibt erhalten.
+3. **Wege:** Die Gesamtzahl der Spielfelder einschließlich Pentagon zwischen 7 und 24 einstellen. Automatische Wege entstehen als Ketten und eindeutige Verzweigungen mit Landschaft zwischen unabhängigen Ästen. Jeder aktive Seiteneingang hat genau einen Besitzer; kein zweites Spielfeld darf dieselbe Außenkante berühren. Die sechs Eingangsfelder beginnen mit seedunabhängigen Flächen aus den mittleren Randzellen und angrenzenden inneren Rasterstücken. Bei manuellen Formänderungen bleiben die mittigen Randzellen fest; das Innere ist bearbeitbar. Der automatische Aufbau mit sechs festen Eingängen benötigt mindestens acht Felder einschließlich Pentagon und innerem Verbinder; sieben werden ausdrücklich als unmöglich gemeldet. Nicht passende Kombinationen aus Raster, Feldzahl und Pentagonposition werden gemeldet. Die Seed-Rezeptur ändert die gewählte Rasterauflösung dabei nicht heimlich. Der automatische Wegbau peilt für normale Felder mindestens die Grundfläche eines Quadrats mit einem Viertel der Haupthexagon-Seitenlänge: `A ≥ (s/4)²`, also etwa 2,4 % der gesamten Kachelfläche. Entscheidend ist die tatsächlich sichtbare, zugeschnittene Fläche. Das Pentagon darf kleiner sein. Manuell dürfen kleinere oder unterbrochene Felder gespeichert werden; die einstellbaren Prüfregeln erzeugen Hinweise und können den Export sperren.
+4. **Pentagon:** Größe, Drehung, Unregelmäßigkeit, Anschlussbreite und Position sind einstellbar; **Pentagon einstellen** rechts führt direkt zu den Reglern. **Spielfelder bei Pentagonänderung neu generieren** ist standardmäßig aus. Vorhandene automatische Felder werden dann als manuelle Formen festgehalten: IDs, Aktionen, Beschriftungen, Farben, Höhenparameter und äußere Eingänge bleiben erhalten. Nur direkt betroffene Rasterstücke und mittige Anschlüsse werden lokal angepasst. Neue Verbindungs- oder Größenprobleme erscheinen als Regelhinweise. Ein vollständig verdrängtes Feld oder ein überlagertes festes Eingangsfeld wird mit konkreter Meldung geschützt. Mit eingeschaltetem Schalter baut eine Formänderung Wege und Platzierungen ausdrücklich neu auf. Undo/Redo umfasst jeweils die ganze Änderung.
+5. **Feldaktionen und Feldform:** Ein Feld in der Vorschau oder rechts auswählen; seine Aktion, Beschriftung, Farbe und Höhe links anpassen. Die feste rechte Seitenleiste enthält kontextabhängige Schnellaktionen: **Neues Spielfeld**, **Feldform bearbeiten**, Objektplatzierung und Export. Beim Feldentwurf gibt es dort genau einen **Anwenden**-Knopf sowie Auswahl leeren und Abbrechen. Freie Rasterstücke anklicken zum Hinzufügen, eigene Stücke zum Entfernen. Kleine oder getrennte Felder sind als Entwurf erlaubt; Warnungen bleiben sichtbar. Nur geometrische Konflikte wie fremde Belegung, reservierte Pentagonecken oder unvollständige feste Mündungen bleiben gesperrt. Andere Felder behalten beim Formedit ihre IDs, Formen und Eigenschaften. Überdeckte manuelle Objekte werden gezielt entfernt. Undo/Redo und Escape funktionieren weiterhin. Die Auswahl erscheint als kräftige Kontur in einer voll gesättigten Komplementärfarbe zur flächengewichteten mittleren Landschaftsfarbe; sie ist ausschließlich in der Vorschau sichtbar. Auf kleinen Bildschirmen stehen die Schnellaktionen als feste untere Leiste bereit. **Alle Aktionen würfeln** rechts verteilt neue Aktionen auf alle sichtbaren Felder einschließlich Pentagon. Unter **Aktionswahrscheinlichkeiten** erhält jede Aktion ein Gewicht; die tatsächliche Chance wird daneben auf 100 % normiert angezeigt. Gewicht 0 schließt eine Aktion aus. Die Verteilung verwendet Seed und gespeicherte Würfelrevision und ist reproduzierbar; jeder Wurf ist ein einzelner Undo-Schritt. Gewichtänderungen verändern vorhandene Aktionen erst beim Knopfdruck.
+6. **Objekte:** Seedbasierte Wälder mit Lichtungen verteilen oder mehrere Objekte je Rasterzelle im Subraster platzieren. Die Bibliothek enthält 18 Arten: sechs lebende Baumarten, Unterholz, Totholz, Felsen und zwei Kristallarten. Echte isometrische Modellminiaturen, Gruppen und Suche erleichtern die Auswahl; der Platzieren-Button bleibt oberhalb der Bibliothek erreichbar. Artenmischung und maximale automatisch erzeugte Objekte je Zelle sind einstellbar. Gesetzte Objekte lassen sich einzeln auswählen, skalieren, drehen und entfernen. Eigene Voxel-JSON-Modelle importieren und einem der 18 Objekttypen zuweisen; ein Beispiel ist unter `public/models/example.json` enthalten. Bei aktivem Außenrand wird die komplette gedrehte, normierte Objektgrundfläche vom Randstreifen ferngehalten. Bereits gespeicherte Konfliktobjekte werden nur ausgeblendet und erscheinen nach Deaktivierung wieder; ihre Konfiguration bleibt erhalten.
+7. **Höhen:** Im Wege-Schritt zwischen ebenen Plattformen und Terrassen aus dem Gelände wählen. Jedes Feld kann das Standardprofil übernehmen oder ein eigenes verwenden. Im Feldaktionen-Schritt hebt oder senkt ein Höhenversatz das gesamte Feld; Terrassen behalten zusätzlich die einzelnen Rasterhöhen. Symbole und Kiesel folgen ihren örtlichen Plattformen. Die starke äußere Feldkontur bleibt von den schwachen inneren Rasterlinien unterscheidbar.
+8. **Export:** Draufsicht, orthografische Orbitansicht oder signierte Perspektive einstellen. Die Perspektive blickt stets senkrecht von oben auf die Mitte des Haupthexagons; Orbitwinkel und Orbitzoom beeinflussen sie nicht. Die gesamte Bodenfläche wird in die exakten quadratischen Exportmaße eingepasst, auch bei unterschiedlich hohen Spielfeldern. Ein negatives Sichtfeld vergrößert weiter entfernte Bereiche stilisiert. Die freie Orbitansicht erlaubt auch Unteransichten. PNG herunterladen oder zusammen mit der Konfiguration im Working-Ordner speichern. Unter **Prüfregeln** rechts lassen sich die Mindestfläche, der Zusammenhalt einzelner Felder und die Erreichbarkeit des Wegenetzes einstellen. **Export sperren** verhindert PNG und Working-Speicherung bei aktiven Regelverstößen; **Nur warnen** erlaubt sie ausdrücklich. JSON-Projekte bleiben unabhängig davon speicherbar.
+
+Ziehen mit der rechten Maustaste dreht die Orbitvorschau; das Mausrad zoomt sie. Mit **Ansicht übernehmen** wird der aktuelle Blick zur Exportkamera. Der Export verwendet die gespeicherten Kameraeinstellungen. **⌘/Strg + Z** und **⇧ + ⌘/Strg + Z** machen Änderungen rückgängig bzw. wiederholen sie. **Escape** beendet den Platziermodus. Die aktuelle Konfiguration wird automatisch im Browser gespeichert. Ausstehende Änderungen werden auch beim Verlassen der Seite oder Neuladen sofort gesichert; JSON-Import und -Export erlauben den Austausch.
+
+Die Landschaftsregler für Überstand und hängende Kanten bilden kleine Voxelüberhänge; die äußere Hexagonkontur bleibt abgeschnitten. Höhenwechsel zwischen Spielflächen bilden harte Stufen mit senkrechten Wänden. Es gibt keine geneigten Rampenflächen. Der Wege-Schritt bietet einen eigenen Zusatzlayer mit randnahen Kieseln, einer natürlichen Aufhellung zur Feldmitte und dunkleren Rändern. Verbindungen bleiben von Kieselstreifen frei.
+
+Die Generierung läuft in einem Web Worker. Schnelle Änderungen verwerfen überholte wartende Vorschauen; nur das neueste Ergebnis wird angezeigt. Kameras, Farbtexturen, Feldbeschriftungen und Exportgröße reagieren ohne neue Geometrieerzeugung. Terrain wird zusammengefasst, Voxelobjekte und Kiesel werden instanziert; die Vorschau rendert bedarfsgesteuert mit Pixelfaktor 1, bei erkannten Software-Renderern mit 0,5. PNGs behalten stets ihre volle eingestellte Auflösung.
+
+## Versionen und vorhandene Projekte
+
+Generator und Konfigurationsschema tragen Version **10.0.0 / 10**. V9-Projekte erhalten neben dem Versionspaar ausschließlich Editorpräferenz und Aktionsgewichte samt Würfelrevision; vorhandene Felder, Aktionen, Rand-, Regel- und Objektkonfigurationen bleiben unverändert. V8 erhält zusätzlich weiterhin nur den deaktivierten Außenrand. V4–V7 behalten alle bisherigen Bearbeitungen und erhalten fehlende Standard-Prüfregeln; nur V4/V5 verlieren zusätzlich die obsolete `paths.transitionWidth`. Die vollständige Seed-Generierung erhält die gewählten Rand-, Editor- und Aktionspräferenzen. Ihre bisherigen Anfangsaktionen bleiben Teil der bestehenden Seed-Rezeptur; die Gewichte gelten für den ausdrücklichen Würfelknopf.
+
+V1-, V2- und V3-Projekte benötigen weiterhin die angekündigte Geometriemigration für mittige Pentagon-Portale und feste Eingangsfelder. Raster-, Material- und Präsentationseinstellungen bleiben erhalten; alte Feldgruppen samt Anpassungen und Objektplatzierungen werden bei diesem Umbau neu aufgebaut. Diese Rücksetzung betrifft keine V4- bis V9-Projekte. Historische Dateien, Exporte und V1- bis V9-Autosaves bleiben erhalten; neue Autosaves verwenden den V10-Schlüssel. Unbekannte Eigenschaften und fehlende Pflichtfelder werden strikt abgewiesen. Jedes historische Format wird vor der Migration gegen sein eingefrorenes Schema geprüft; nur V4/V5 verlangen ihre damalige Rampenbreite.
+
+## Dateien und Architektur
+
+```text
+src/core/          Reine Geometrie, Perlin-Noise, Wege, Schema und Konfiguration
+src/render/        Gebündelte Three.js-Geometrie, Kamera, Shader, Instanzen und PNG-Export
+src/editor/        Web Worker, priorisierte Generierungswarteschlange und Ergebniscache
+src/components/    Inspector, Eingabeelemente und Viewport
+src/App.tsx        Editorzustand und Arbeitsabläufe
+server/           Lokale HTTP-API, validierte Persistenz, PNG-/Modellprüfung
+public/models/    Mitgelieferte Voxel-JSON-Bibliothek
+working/          Generierte Bilder, Konfigurationen, Manifeste und Custom-Modelle
+tests/           Domänen-, HTTP-, Parser- und Browserprüfungen
+```
+
+`working/` bleibt bis auf `.gitkeep` aus Git ausgeschlossen. Gespeicherte Tiles liegen in `working/<name-seed-hash>/` mit `tile.png`, `config.json` und `manifest.json`. Gleiche Konfigurationen erhalten dieselbe ID; vorhandene Ergebnisse werden nicht überschrieben. Custom-Modelle werden in `working/models/` abgelegt und in der Konfiguration per Inhalts-ID referenziert.
+
+Die Generatorversion und das Konfigurationsschema sind explizit versioniert. Ein anderer Seed beeinflusst unabhängig Terrain, Wegwahl, Feldfarben und Objekte. Gleiche Konfigurationen ergeben identische Geometrie und Materialien. GPU-Rasterisierung kann zwischen unterschiedlichen Browsern/Grafiktreibern einzelne Pixel verändern. Die Vorschau zeigt Zellrasterlinien nur, wenn sie eingeschaltet sind; auch diese Einstellung gehört zur exportierten Darstellung.
+
+## Qualitätspipeline
+
+```sh
+npm run check
+npx playwright install chromium   # einmalig für Browserprüfungen
+npm run test:e2e
+npm run test:e2e:production
+```
+
+`test:e2e` prüft den Entwicklungsserver auf Port 5173. `test:e2e:production` startet mit `npm start` einen frisch gebauten Server auf dem separaten Testport 4174 und prüft dieselben Editorabläufe einschließlich der Einstiegspunkte, Asset-/API-Antworten, Worker-Start und Fehlerfälle beim ersten Öffnen. Ein vorhandener Server auf dem Testport wird nicht wiederverwendet. Die CI verwendet diesen Produktionslauf. Auf macOS nutzen die Browserprüfungen Metal; die Linux-CI verwendet SwiftShader. Mit `PLAYWRIGHT_SOFTWARE_GPU=1 npm run test:e2e` kann auch lokal gezielt der Software-Renderer geprüft werden.
+
+`check` erzwingt striktes TypeScript, ESLint ohne Warnungen, Prettier, Tests mit Coverage-Gates (85 % Zeilen/Statements/Funktionen, 75 % Branches) und den Produktionsbuild. Coverage gilt für die reine Domäne, Worker-Warteschlange sowie API-, PNG- und Modelllogik; Darstellung und Integration werden zusätzlich im Browser geprüft. GitHub Actions führt dieselben Prüfungen einschließlich Chromium aus. Eine CI-Datei kann Branchschutz nicht selbst aktivieren; im Git-Host kann `Quality / verify` als verpflichtender Check gesetzt werden.
+
+## Konzept und Grenzen
+
+[Umsetzungsplan und Entscheidungen](docs/PLAN.md), [Geometrie und Pentagon](docs/geometry.md), [Objektbibliothek und Kristalle](docs/models.md), [lokale API und Modellformat](docs/api.md), [Performance und Messung](docs/performance.md), [Feldkonturen und Höhen](docs/rendering.md), [neue Aktionssymbole](docs/icons.md), [gewichtete Aktionswürfe](docs/actions.md).
+
+Das Tool gestaltet Spielmaterial und simuliert keine Spielregeln. Die Aktionen aus `Spielbeschreibung` sind als Pixelgrafiken enthalten. Eigene Ereignisse verwenden das Sternsymbol mit Plus und eine gespeicherte Beschriftung. Der Assetimport unterstützt Voxel-JSON; GLB-/VOX-Import und Druckbögen sind mögliche Erweiterungen. Konfigurationen mit Custom-Modellen benötigen zusätzlich deren JSON-Dateien. Exporte sind bis 4096 × 4096 begrenzt.
+
+Fonts: DM Sans und Manrope, jeweils SIL Open Font License; Lizenztexte unter `public/fonts/`. Die enthaltenen Voxelmodelle und Pixelgrafiken werden im Repo erzeugt und benötigen keine fremden Bilddateien.

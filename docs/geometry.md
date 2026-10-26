@@ -1,0 +1,105 @@
+# Geometrie und deterministische Erzeugung
+
+Die Konfiguration ist versioniert (`schemaVersion: 10`, `generatorVersion: 10.0.0`). Version 8 trennt strukturell gültige Feldentwürfe von konfigurierbaren Spielregeln. Kleine oder getrennte manuelle Felder bleiben erhalten; nur der Export kann aufgrund aktiver Regeln gesperrt werden. Seit Version 6 bestehen Höhenunterschiede ausschließlich aus senkrechten Wänden zwischen waagerechten Polygonflächen, auch an Terrassen und Pentagon-Portalen.
+
+V9-Projekte erhalten nur das neue Versionspaar sowie Editor- und Aktionspräferenzen. V8 erhält zusätzlich weiterhin einen deaktivierten Außenrand. Vorhandene Feldaktionen und alle bisherigen Werte bleiben erhalten. V6- und V7-Projekte ändern ihr Versionspaar und erhalten zusätzlich die Standard-Prüfregeln. Bei allen werden vorhandene Werte erhalten. V4/V5 behalten ebenfalls alle Bearbeitungen; zusätzlich entfällt ausschließlich die obsolete Rampenbreite. V1–V3 benötigen weiterhin den ausdrücklich gemeldeten früheren Geometrieumbau. Originaldateien und Exporte bleiben erhalten. Der Kern hängt weder von DOM noch Uhrzeit oder GPU ab.
+
+## Koordinaten und Raster
+
+Das große regelmäßige Hexagon hat Radius 1 und Seitenlänge 1. Die Spitzen bei x = ±1 zeigen nach rechts und links; obere und untere Kante sind waagerecht. Der Renderer bildet `(x, y)` auf `(x, Höhe, z=y)` ab. Das quadratische PNG enthält ein geometrisch korrektes Hexagon mit Höhe `√3 / 2` seiner Breite.
+
+`buildUntouchedGrid` erzeugt das ursprüngliche Hexagon- beziehungsweise 60°-Rautenraster. Hexagonzellen haben Radius `1 / divisions`. Sutherland–Hodgman-Clipping begrenzt ihre Polygone am Haupthexagon. Nachbarn teilen eine reale Kante mit positiver Länge; Punktkontakte verbinden keine Spielfelder. Die Flächensumme entspricht exakt der Grundfläche des Haupthexagons.
+
+`buildGrid(grid, centerPolygon, { portalWidth })` ergänzt die zentralen Schnitte, bewahrt aber die vorher ausgewählten Eingangsflächen. Jede zentrale Teilfläche speichert ihren Ursprung in `rasterId` und `rasterCenter`. Alle ihre Teile verwenden dieselbe ursprüngliche Rasterhöhe. Geschnittene Polygone und die verbleibenden Originalzellen bedecken gemeinsam weiterhin exakt die Hauptfläche.
+
+`buildSubgrid` erzeugt die kleineren zugeschnittenen Polygone für Rasterdarstellung und Geometrieprüfung. `decorationSlots` liefert die Positionen desselben regulären Gitters für Platzierung und prozedurale Objekte, prüft sie gegen sichtbare Flächen und benötigt dafür keine zusätzliche Polygonzerlegung. An einem beschnittenen Rand muss ein Gitterpunkt nicht dem Schwerpunkt des beschnittenen Subrasterpolygons entsprechen.
+
+Objekte speichern lokale Offsets zwischen −1 und 1. Die Normierung verwendet je Achse den größten Abstand vom Zellschwerpunkt zu den Polygonpunkten. `placementPoint` und `placementOffset` rekonstruieren die Weltposition. Numerische Überschreitungen an Intervallgrenzen werden nur innerhalb der Geometrietoleranz korrigiert. Manuelle Objekte können einzelne Plätze belegen; prozedurale Objekte verwenden die freien Plätze. Spiel- und Zentralflächen bleiben frei.
+
+## Feste äußere Eingangsflächen
+
+`buildEntranceFootprints(grid)` arbeitet ausschließlich auf dem **unveränderten** Raster. Es verwendet weder Seed noch Höhe oder Pentagonposition. Je Außenkante werden die berührenden Originalzellen entlang der Kante sortiert. Die mittleren `max(1, floor(Anzahl / 3))` bilden die ganze Breite des Eingangs. Bei unpassender gerader/ungerader Zellzahl kann der diskrete Mittelpunkt höchstens ein halbes Rasterstück versetzt sein.
+
+Falls die Randstücke allein zu klein sind, ergänzt eine feste geometrische Auswahl unmittelbar innere Zellen, bis mindestens 1/16 Grundfläche erreicht ist. Die sechs Flächen sind zusammenhängend, überschneiden sich nicht und bewahren ihre ursprünglichen Zell-IDs und Polygone. Damit erzeugt dieselbe Rasterkonfiguration über verschiedene Seeds und gültige Pentagonpositionen dieselben vollständigen Eingangsflächen. Ihre Farben und Höhen dürfen sich weiterhin mit dem Seed ändern.
+
+`entrances[].cellIds` bezeichnet die festen Randstücke; `footprintCellIds` bezeichnet die vollständige generierte Standardfläche. `fieldId` benennt den tatsächlichen Eigentümer der Mündung. Der automatische Wegbau verändert die Standardfeldform nicht. Er schließt ausschließlich mit inneren Feldern an sie an. Andere Rasterstücke an derselben Außenkante bleiben Landschaft; ein zweites Spielfeld darf diese Kante nicht berühren. `TileCell.entranceSide` beschreibt weiterhin die ursprüngliche Standardfläche und ist keine Sperre gegen manuelle Innenänderungen.
+
+Manuelle Eingangsbelegungen müssen sämtliche festen Mündungszellen und ausschließlich diese Außenkontakte enthalten. Hinter der Mündung können Rasterstücke hinzugefügt oder entfernt werden. Ein abgewähltes inneres Standardstück ist wieder Landschaft und darf später einem anderen Feld gehören. Portalregeln, disjunkte Belegung und eindeutiges Eigentum bleiben strukturell verbindlich. Mindestfläche und Konnektivität erzeugen beim Bearbeiten ausschließlich konfigurierbare Warnungen.
+
+Ein konfiguriertes Pentagon beziehungsweise sein Eckenschutz kann mit einer solchen Fläche kollidieren. Der Generator verschiebt dann weder das Pentagon noch den Eingang stillschweigend und schneidet den Eingang nicht neu zu. Er meldet deterministisch: „Pentagon kollidiert mit festem Eingangsfeld; verschiebe oder verkleinere das Pentagon.“ Der Editor kann die letzte gültige Vorschau behalten und einen ungültigen Export verhindern.
+
+## Mittige Pentagonportale und echte Landschaftsecken
+
+Das Zentrum ist ein konvexes Polygon mit fünf Seiten. Die regelmäßige Variante verwendet vor Skalierung die Referenz-Seitenlänge 0,2. Die organische Variante verändert Winkel und Radien maßvoll aus dem Seed. Größe, Rotation, Unregelmäßigkeit und `center.offset` bleiben konfigurierbar. Die zugelassenen Offsets reichen je Achse von −0,45 bis 0,45; die Grundform bleibt innerhalb des Haupthexagons, soweit keine feste Eingangsfläche beansprucht wird.
+
+Jede Seite hat genau einen mittigen Portalbereich. `center.portalWidth` ist dessen Anteil an der ganzen Seitenlänge, standardmäßig 0,45 und einstellbar zwischen 0,25 und 0,7. `center.sides[].start/end` beschreiben weiterhin die ganze Seite; `portalStart/portalEnd` beschreiben nur den zulässigen Anschluss. Dieser Anschluss gehört vollständig einem Spielfeld oder keinem.
+
+An beiden Enden der Seite bleibt wirkliche Geländegrundfläche. Ein konvexer äußerer Kragen wird mit bis zu 0,035 Welteinheiten Tiefe um das Pentagon aufgebaut. Aus ihm werden die mittigen rechteckigen Portalkorridore ausgeschnitten. Der Rest bildet sichtbare Landschaft an den Ecken und Seitenenden. Es handelt sich um positive Polygonflächen und nicht um eine Farblinie oder eine bloße Kennzeichnung an einem unverändert belegten Rand.
+
+Das Raster wird an Zentrum, Kragen und Korridoren exakt geteilt. Zentrale Innenstücke besitzen leere `surfacePolygons` und ein Polygon, das den tatsächlichen Pentagonanteil beschreibt. Zulässige Korridorteile speichern `centerPort`. Geschützte Eckenteile speichern `landscapeOnly` und dürfen von keinem Spielfeld beansprucht werden. Die Portalteile werden gemeinsam einem Eigentümer zugeteilt. `centralSideCells` liefert seit Version 4 diese Korridorteile, nicht die Landschaft an den vollständigen Seiten.
+
+Spielverbindungen zum Pentagon entstehen deshalb nur an `portalStart..portalEnd`. An den übrigen Seitenabschnitten berührt ausschließlich Landschaft das Pentagon. Zusammen mit dem sichtbaren Kragen entfernt das die bisherigen direkten Wegkreuzungen unmittelbar an den Pentagonecken. Ein Feld darf mehrere Portale besitzen; seine Verbindung verläuft dann außerhalb der geschützten Eckenzonen.
+
+## Feldzahl, Fahrspuren und Mindestfläche
+
+`paths.fieldCount` bezeichnet die gewünschte Gesamtzahl einschließlich des Pentagons. Standardmäßig werden 13 Felder erzeugt. Die normalen Felder werden auf sechs räumlich geplante Spuren verteilt. Längere Strecken können mehr Zwischenfelder erhalten. Die tatsächlichen Seitenrichtungen bestimmen die inneren Portalzuordnungen. Wenn mehrere Portale einem inneren Feld gehören, werden zusammenhängende Richtungsbereiche bevorzugt.
+
+Zusätzliche Rasterstücke dürfen grundsätzlich nur geplante Nachbarn berühren. Zwischen unabhängigen Feldern bleibt Landschaft. Gewichtetes Dijkstra sucht die wirklichen Verbindungsstrecken und berücksichtigt Höhenwechsel, Abstand zur geplanten Spur und kleine seedabhängige Abweichungen. Ein grobes Raster kann einen Anschluss auf einen anderen erreichbaren Abzweig umlegen. Örtlich zusätzliche Abzweige werden ausdrücklich eingeplant und begrenzt.
+
+Der automatische Aufbau verwendet weiterhin `MIN_FIELD_AREA = (1/4)² = 1/16 = 0,0625` Welteinheiten² als kompaktes Flächenziel. Die Berechnung summiert ausschließlich sichtbare Polygonflächen; Wände, Überhänge und Boundingbox zählen nicht. `rules.minFieldArea` bestimmt unabhängig davon die Prüfgrenze (0 bis 0,5), nicht das Wachstumsziel. Das Pentagon ist ausgenommen. Diese Trennung bewahrt die generierte Standardform und macht strengere Vorgaben sichtbar, ohne Felder heimlich zu verändern.
+
+Die inneren Gruppen wachsen abwechselnd anhand von Umfang, Schwerpunktabstand und Flächengewinn bis zur Mindestgröße. Fehlt einem Portalanschluss nur ein Rasterstück, kann eine angrenzende innere Spur zuerst in freie Landschaft wachsen und dieses Stück abgeben. Feste Eingangsflächen, Portale und geschützte Ecken werden dabei nicht geteilt oder verschoben.
+
+Kann die angeforderte Zahl mit unverändertem Raster und Zentrum nicht gültig erzeugt werden, nennt die Warnung ausdrücklich gewünschte und tatsächliche Anzahl. Eine gültige verbundene Ersatzanordnung wird bevorzugt. Sieben Gesamtfelder bedeuten nur sechs feste Eingangsflächen plus Pentagon; damit fehlt ein inneres Verbindungsfeld. Mindestens acht Gesamtfelder werden benötigt, während eine konkrete grobe Geometrie weitere Einschränkungen haben kann. Der vollständige Seed-Generator friert nur ein Ergebnis mit exakt gewünschter Zahl und erfüllten Invarianten ein; er ändert die gewählte Rasterauflösung nicht heimlich.
+
+## Höhenmodi und ausdrückliche Höhenänderungen
+
+`paths.heightMode` bestimmt den Standardmodus. Ein `FieldEdit.heightMode` kann ihn für ein einzelnes Feld einschließlich des Pentagons überschreiben. `heightOffset` speichert eine ausdrückliche Höhenänderung zwischen −0,12 und 0,3.
+
+Im Modus `flat` verwenden alle Zellen das Minimum ihrer ursprünglichen Rasterhöhen plus Offset. Im Modus `terraced` behält jede Zelle ihre ursprüngliche Höhe plus Offset. Jeder tatsächliche Wert wird bei 0,02 nach unten begrenzt. Die ursprüngliche `baseHeight` wird dabei nicht verändert. Geschützte Landschaft und unbelegte Geländegrundflächen behalten ihre Geländehöhen.
+
+`GameField.height` ist das Minimum der tatsächlichen Zellhöhen; `maxHeight` ist das Maximum. Bei terrassierten Feldern wird die Symbolposition aus Schwerpunkten zusammenhängender gleich hoher Plateaus und ihrer Zellen gewählt. Unter den nahe gelegenen Kandidaten müssen genügend Abstand zur tatsächlichen Plateaugrenze und damit eine brauchbare ebene Symbolfläche vorhanden sein. Schmale Portalstücke und Höhenstufenkanten werden so vermieden; flache Felder behalten ihre bisherige Symbolposition. `symbolHeight` ist die sichtbare Höhe an der Symbolposition. `fieldHeightAt(field, cells, point)` verwendet die tatsächlichen Teilpolygone. An einer exakten gemeinsamen Kante gilt das höhere sichtbare eigene Teilstück; außerhalb des Feldes dient dessen Minimum als Rückfallwert. Das Pentagon verwendet seine zentralen Innenstücke und kann ebenfalls terrassiert werden.
+
+## Tatsächliche Grenzen und Verbindungen
+
+`fieldBoundarySegments` erzeugt die wirkliche äußere Grenze einer Spielfeldvereinigung. Es entfernt vollständige und teilweise innere Rasterkanten. Die verbleibenden Abschnitte bewahren ihre lokale Zellhöhe. Ergebnisse werden für dasselbe Feld und dieselbe Zellliste zwischengespeichert.
+
+`connections` enthält je tatsächlich benachbartem Feldpaar seine IDs, die gemeinsamen Segmente und deren Gesamtlänge. Jedes Segment besitzt eigene `fromHeight` und `toHeight` aus seinen angrenzenden Zellen. Die zusätzliche skalare `heightDelta` bleibt die Differenz der beiden Feldminima. Sie darf bei Terrassen nicht anstelle der lokalen Segmentwerte zur Darstellung benutzt werden. Abschnitte mit unterschiedlichen Höhen behalten ihre eigenen lokalen Höhenwerte für die jeweilige senkrechte Wand.
+
+Der Graph beruht auf positiver gemeinsamer Grenzlänge, nicht auf Abstand oder Symbolen. `kind` unterscheidet innere Verbindungen und Portalanschlüsse zum Pentagon. Ein Graphlauf prüft alle Felder und Eingänge auf Erreichbarkeit.
+
+Der Renderer bewahrt an jedem Anschluss die waagerechten Oberflächen und ergänzt bei einem Höhenunterschied eine gerade senkrechte Wand vom niedrigeren zum höheren Polygon. Gleich hohe Nachbarn benötigen keine Zwischenwand. Dieselbe Regel gilt für innere Rasterterrassen, Grenzen zwischen Spielfeldern, Landschaft und die mittigen Pentagonportale. Es gibt keine Rampen oder geneigten Verbindungsbänder und keinen Regler für eine Übergangsbreite. Der logische Nachbarschaftsgraph bleibt trotz der sichtbaren Stufen unverändert. Wegdetails verwenden weiterhin die wirklichen Grenzen und lassen Anschlüsse sowie Symbolflächen frei.
+
+## Reproduzierbarkeit und Bearbeitung
+
+Integer-Hashes liefern getrennte Zufallsdomänen für Terrain, Pentagon, Wegführung, Gruppenwachstum, Aktionen, Farben, Wald und Material. Gradient-Perlin-Noise wird als fBm über mehrere Oktaven summiert. Geometrie und Zuordnungen bleiben für dieselbe Konfiguration und Generatorversion reproduzierbar. Die GPU-Rasterisierung kann zwischen Treibern geringfügige Pixelunterschiede erzeugen.
+
+Eine automatische Feldliste lässt sich mit unveränderten IDs, Zelllisten, Aktionen und Überschreibungen manuell festhalten. `paths.auto = false` bewahrt die Formen. Manuelle Gruppen dürfen klein oder getrennt sein; unbekannte Zellen, Überlappungen sowie unzulässige Center-, Eckenschutz-, Portal- oder Randbelegungen werden weiterhin abgewiesen. Leere Zelllisten überschreiben ausschließlich Eigenschaften eines vorhandenen Auto-Feldes. Neue Auto-IDs werden bei Kollision deterministisch umbenannt.
+
+`prepareFieldShapeEdit` erstellt einen reinen Entwurf aus dem sichtbaren Tile und friert alle normalen Felder mit IDs, Zelllisten, Aktionen und Beschriftungen ein. Explizite Farben, Höhenüberschreibungen und Zentrum-Einstellungen bleiben erhalten. `paths.auto` wird deaktiviert; Objekte auf neu beanspruchten Zellen werden gezielt entfernt. Der Worker prüft die strukturelle Aufnahme und die unveränderten übrigen Feldformen. Regelverstöße verhindern das Übernehmen nicht. Eine Änderung bleibt ein einzelner Undo-Schritt.
+
+`validateFieldShapeSelection` trennt strukturelle Fehler von lokalen `warnings`. `evaluateTileRules` prüft Mindestfläche, Zusammenhalt jedes Feldes und den tatsächlichen Zellgraphen aller Feldteile einschließlich aktiver Mündungen. Die Wegprüfung ist bei deaktivierter Wegebene ausgesetzt. `getExportRuleIssues` liefert nur bei `rules.exportPolicy = "block"` aktive Regelverstöße. Anzahl- und sonstige Layoutwarnungen sind keine pauschalen Exportblocker. `stats.connected` verlangt Erreichbarkeit aller tatsächlichen Feldteile. Die rechte Schnellaktionsleiste hält Erstellen, Bearbeiten und genau eine Anwenden-Aktion außerhalb des scrollenden Parameterbereichs bereit; auf Mobilgeräten ist sie unten angedockt. Auswahlkonturen liegen in einer separaten Renderer-Gruppe und werden beim Export ausgeblendet.
+
+Grobe Artenregionen für Wälder runden numerischen Rasterdrift vor der Ganzzahlzuordnung. So wählt ein Rasterstück exakt auf einer Drittel-Grenze in Node und im Browser dieselbe dominante Baumart.
+
+## Optionaler Außenrand ab Version 9
+
+`border.enabled` und `border.width` bestimmen einen geometrisch exakt nach innen eingerückten Streifen entlang des Haupthexagons. `borderRing` zerlegt den Bereich zwischen Außenhexagon und parallelem Innenhexagon in sechs disjunkte Trapeze. Der Innenradiusfaktor ist `1 − width / (√3/2)`. Die Breite liegt zwischen 0 und 0,1 Weltmaßen; Vorgabe ist 0,015 bei deaktiviertem Rand. Die UI zeigt Prozent einer Hexagon-Seitenlänge und die daraus folgende PNG-Pixelbreite.
+
+Der Renderer schneidet alle tatsächlichen Spielfeldflächen einschließlich ihrer sichtbaren Überhänge aus dem Band heraus. Wege reichen weiterhin bis zur unveränderten äußeren Hexagonkante; bei aktivem Rand entfällt auch ihr quer liegender äußerer Feldabschluss. Auswahlkonturen bleiben Vorschaukonturen ihrer gesamten Feldvereinigung. Die Randoberfläche folgt horizontalen Geländeplateaus und schließt Höhenwechsel durch senkrechte Abschnitte; es entstehen keine Rampen.
+
+Die Modi `black`, `custom`, `fields` und `transparent` beeinflussen ausschließlich die Darstellung. `fields` verwendet die normale Feldrandfarbe, nicht die Signalfarbe der Auswahl. `transparent` erzeugt kein sichtbares Band und lässt den Boden unverändert, reserviert aber dieselbe Objektzone. Bei deaktiviertem Rand oder Breite 0 bleibt das bisherige Bild erhalten.
+
+`decorationClearsBorder` prüft alle vier Ecken der gedrehten normalisierten Quadratgrundfläche gegen das innere Hexagon. Die konservative Einheitsgrundfläche deckt die belegten horizontalen Bounds aller eingebauten und normalisierten eigenen Modelle ab. Automatische Objekte werden mit ihrer tatsächlichen Seed-Skalierung und Rotation gefiltert. Manuelle/importierte Konfliktobjekte bleiben in `decoration.placements`, werden aber samt Hinweis aus dem generierten Ergebnis ausgeblendet. Ihre Subslots bleiben reserviert. Die manuelle Platzierung prüft sowohl den Klickpunkt als auch den gerasteten Objekt-Footprint. Randfarbe und Darstellungsmodus verändern keine Objektwahl; deaktivierter Rand stellt gespeicherte Objekte wieder her.
+
+## Pentagonänderungen ohne neuen Wegeplan ab Version 10
+
+`editing.regeneratePathsOnCenterChange` steuert die Editoraktion und ist standardmäßig `false`. `prepareCenterEdit(config, tile, nextCenter)` verwendet die tatsächlich sichtbare Vorschau als Quelle. Dadurch können schnelle weitere Regleränderungen auch bei noch ausstehender Vorschau korrekt vom letzten sichtbaren Raster ausgehen. Ein veraltetes Raster wird vorab mit einer klaren Meldung erkannt.
+
+Ohne Neuaufbau werden normale Felder einschließlich ihrer IDs, Aktionen, Beschriftungen, Farb- und Höhenüberschreibungen festgehalten; `paths.auto` wird deaktiviert. Das neue zugeschnittene Raster wird über `rasterId` lokal mit den bisherigen Fragmenten verglichen. Der Eigentümer mit größter echter Flächenüberlappung übernimmt ein neues Fragment. Unveränderte Rasterstücke außerhalb der alten und neuen Pentagonbereiche behalten ihre Besitzer und Polygone. Neue Portalgruppen gehören vollständig einem bisherigen Besitzer oder keinem; Landschaftsecken bleiben frei. Es entstehen keine neuen Felder oder Verbindungsstrecken.
+
+Eine ausgeblendete Wegebene behält ihre Felder ebenfalls: Der vorhandene automatische oder manuelle Stand wird vor dem lokalen Zuschnitt aus seiner Konfiguration ermittelt und festgehalten. Die Ebene bleibt ausgeschaltet, ihre Feldformen und Eigenschaften stehen nach dem Einschalten weiter zur Verfügung. Eine leere manuelle Belegung bleibt leer.
+
+Die Anpassung kann nahe am Zentrum Zellteile lokal vergrößern oder verkleinern und Verbindungen unterbrechen; die normalen konfigurierbaren Regelwarnungen gelten weiter. Ein vollständig verdrängtes Feld oder ein Pentagon über einer festen Standard-Eingangsfläche wird abgewiesen. Diese Eingangskollision ist bewusst weiterhin strenger als die schmale Mündung. Gespeicherte Objektplatzierungen bleiben unverändert; Objekte in direkt neu beschnittenen Zellen können vorübergehend nicht dargestellt werden.
+
+Mit aktivem Schalter wird der bisherige Neuaufbau ausdrücklich verwendet: Feldanpassungen und manuelle Platzierungen werden geleert, Auto-Wege aktiviert und eine vorhandene `sourceDensity` wiederhergestellt. Ein Center-Schritt bleibt ein Undo-Schritt. Die Editorpräferenz verändert reine Generatorausgaben nicht von selbst; importierte Konfigurationen werden als bereits festgelegter Stand gerendert. Der ausdrückliche vollständige Seed-Neuaufbau erzeugt weiterhin ein neues Layout.

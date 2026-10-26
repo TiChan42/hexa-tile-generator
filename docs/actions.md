@@ -1,0 +1,9 @@
+# Gewichtetes Aktionswürfeln
+
+`config.actions.weights` enthält für jede der 13 Aktions-IDs ein endliches Gewicht von 0 bis 100. Die Gewichte müssen zusammen nicht 100 ergeben: Die Chance einer Aktion ist ihr Gewicht geteilt durch die Summe aller positiven Gewichte. Gewicht 0 schließt sie vom Würfeln aus. `none` und `custom` können wie jede andere Aktion aktiviert werden. Eine Konfiguration mit ausschließlich Nullgewichten bleibt bearbeitbar; ein Würfelversuch meldet einen Fehler und verändert nichts.
+
+`rollFieldActions(config, tile)` würfelt ausschließlich die aktuell sichtbaren Spielfelder einschließlich des Pentagons. Vorhandene Feldeinträge behalten ihre Rasterstücke, Farben, Beschriftungen und Höhenangaben. Für automatische Felder ohne eigenen Eintrag wird nur `{ id, cellIds: [], action }` ergänzt. Der automatische Layoutmodus, Feldzahl, Landschaft und Objekte bleiben unverändert. Nicht sichtbare gespeicherte Feldeinträge werden nicht gewürfelt.
+
+Die Funktion ist rein und verändert keines ihrer Eingabeobjekte. Sie erhöht die gespeicherte `revision` vor dem Würfeln; auf `2147483647` folgt `0`. Jede Feld-ID verwendet unabhängig `randomAt(seed, 'field-action-roll-v10', nextRevision, fieldId)`. Die gewichteten Intervalle werden in lexikografischer Reihenfolge der Aktions-IDs aufgebaut. Neue Metadateneinträge werden nach Feld-ID sortiert angehängt; vorhandene Einträge behalten ihre Reihenfolge. Feldreihenfolge, Gewichtsanordnung und zusätzliche sichtbare Felder verschieben deshalb keine bestehenden Würfelergebnisse.
+
+Die Gewichte wirken erst beim ausdrücklichen Würfeln. Eine Änderung der Gewichte oder des Zählers würfelt keine Felder neu; die bisherige Aktionsrezeptur für automatisch erzeugte beziehungsweise vollständig aus einem Seed erzeugte Kacheln bleibt erhalten. Der Editor übernimmt das vollständige Ergebnis als einen rückgängig machbaren Änderungsschritt.
