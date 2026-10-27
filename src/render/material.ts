@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { hash32 } from '../core/random';
+import { enableInstancePalettes } from './objectPalettes';
 
 export interface MaterialTextureSettings {
   scale: number;
@@ -18,6 +19,76 @@ export interface MaterialSample {
   detail: number;
   grain: number;
   multiplier: number;
+}
+
+/** Appearance is versioned separately from the unchanged deterministic tile generator. */
+export const RENDER_STYLE_VERSION = 2;
+
+const smoothstep = (a: number, b: number, value: number): number => {
+  const t = Math.max(0, Math.min(1, (value - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+};
+
+/** CPU reference for the sparse painted cracks; these never change the surface geometry. */
+export function samplePathCrack(seed: string, point: MaterialPoint): number {
+  const x = point.x * 5.5,
+    z = point.z * 5.5;
+  const h = materialLatticeHash(
+    hash32(`${seed}:material:path-cracks:v2`),
+    Math.floor(x),
+    0,
+    Math.floor(z),
+  );
+  if (h % 13 !== 0) return 0;
+  let px = x - Math.floor(x) - 0.5,
+    py = z - Math.floor(z) - 0.5;
+  if ((h & 16) !== 0) [px, py] = [py, px];
+  if ((h & 32) !== 0) px = -px;
+  const bend = (((h >>> 8) & 255) / 255) * 0.14 - 0.07;
+  const segment = (ax: number, ay: number, bx: number, by: number): number => {
+    const dx = bx - ax,
+      dy = by - ay;
+    const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)));
+    return Math.hypot(px - ax - t * dx, py - ay - t * dy);
+  };
+  const main = Math.min(segment(-0.23, -0.08, -0.02, bend), segment(-0.02, bend, 0.21, 0.09));
+  const branch = segment(-0.02, bend, 0.045, bend - 0.13);
+  return Math.max(
+    1 - smoothstep(0.003, 0.009, main),
+    (1 - smoothstep(0.001, 0.005, branch)) * 0.65,
+  );
+}
+
+/** Shared reference for edge grit, center light and sparse cracks in preview/PNG/GLB. */
+export function samplePathFinish(
+  seed: string,
+  point: MaterialPoint,
+  borderDistance: number,
+  grain: number,
+  detail: { centerLight: number; edgeShade: number },
+  origin: { x: number; y: number } = { x: 0, y: 0 },
+): number {
+  const world = { x: point.x + origin.x, y: point.y, z: point.z + origin.y };
+  const edge = 1 - smoothstep(0, 0.55, borderDistance);
+  const grit =
+    (materialLatticeHash(
+      hash32(`${seed}:material:path-grit:v2`),
+      Math.floor(world.x * 210),
+      Math.floor(world.y * 210),
+      Math.floor(world.z * 210),
+    ) /
+      4294967296) *
+      2 -
+    1;
+  const shade =
+    1 +
+    detail.centerLight * smoothstep(0, 0.9, borderDistance) -
+    detail.edgeShade * (1 - smoothstep(0, 0.35, borderDistance));
+  return (
+    shade *
+    (1 + grit * Math.min(0.45, grain * 1.6 + detail.edgeShade) * edge) *
+    (1 - samplePathCrack(seed, world) * 0.38 * smoothstep(0.08, 0.28, borderDistance))
+  );
 }
 
 /** CPU reference for the same uint hash used by the WebGL2 material shader. */
@@ -124,6 +195,8 @@ varying vec3 vTilePosition;
 uniform uint tileBroadSeed;
 uniform uint tileDetailSeed;
 uniform uint tileGrainSeed;
+uniform uint tilePathGritSeed;
+uniform uint tilePathCrackSeed;
 uniform vec2 tileNoiseOrigin;
 uniform float tileTextureScale;
 uniform int tileTextureOctaves;
@@ -171,6 +244,39 @@ float tileFbm(vec3 p,uint seed,int octaves) {
   }
   return clamp(sum/total*1.6,-1.0,1.0);
 }
+float tileCrackSegment(vec2 p,vec2 a,vec2 b) {
+  vec2 delta=b-a;
+  return length(p-a-delta*clamp(dot(p-a,delta)/dot(delta,delta),0.0,1.0));
+}
+float tilePathCrack(vec2 world) {
+  vec2 p=world*5.5;
+  uint h=tileLatticeHash(ivec3(int(floor(p.x)),0,int(floor(p.y))),tilePathCrackSeed);
+  if(h%13u!=0u)return 0.0;
+  p=fract(p)-0.5;
+  if((h&16u)!=0u)p=p.yx;
+  if((h&32u)!=0u)p.x=-p.x;
+  float bend=float((h>>8u)&255u)/255.0*0.14-0.07;
+  float main=min(tileCrackSegment(p,vec2(-0.23,-0.08),vec2(-0.02,bend)),tileCrackSegment(p,vec2(-0.02,bend),vec2(0.21,0.09)));
+  float branch=tileCrackSegment(p,vec2(-0.02,bend),vec2(0.045,bend-0.13));
+  return max(1.0-smoothstep(0.003,0.009,main),(1.0-smoothstep(0.001,0.005,branch))*0.65);
+}
+`;
+
+const TILE_COLOR_GLSL = `
+      float tileBroad=0.0,tileDetail=0.0;
+      if(tileTextureStrength>0.0)tileBroad=tileFbm(vTilePosition*tileTextureScale+vec3(13.37,7.11,-19.83),tileBroadSeed,tileTextureOctaves);
+      if(tileDetailStrength>0.0)tileDetail=tileFbm(vTilePosition*tileDetailScale+vec3(13.37,7.11,-19.83),tileDetailSeed,max(1,(tileTextureOctaves+1)/2));
+      diffuseColor.rgb*=max(0.1,1.0+tileBroad*tileTextureStrength+tileDetail*tileDetailStrength);
+      if(vTilePathWeight>0.0) {
+        float tileCenter=smoothstep(0.0,0.9,vTileBorderDistance);
+        float tileEdge=1.0-smoothstep(0.0,0.35,vTileBorderDistance);
+        diffuseColor.rgb*=1.0+vTilePathWeight*(tilePathCenterLight*tileCenter-tilePathEdgeShade*tileEdge);
+        float tileGrit=float(tileLatticeHash(ivec3(floor(vTilePosition*210.0)),tilePathGritSeed))/4294967296.0*2.0-1.0;
+        diffuseColor.rgb*=1.0+tileGrit*min(0.45,tileGrain*1.6+tilePathEdgeShade)*(1.0-smoothstep(0.0,0.55,vTileBorderDistance))*vTilePathWeight;
+        diffuseColor.rgb*=1.0-tilePathCrack(vTilePosition.xz)*0.38*smoothstep(0.08,0.28,vTileBorderDistance)*vTilePathWeight;
+      }
+      float tilePixel=float(tileLatticeHash(ivec3(floor(vTilePosition*540.0)),tileGrainSeed))/4294967296.0*2.0-1.0;
+      diffuseColor.rgb*=1.0+tilePixel*tileGrain;
 `;
 
 interface MaterialUniform {
@@ -194,6 +300,8 @@ export function updateTileMaterial(
     tileBroadSeed: domains.broad,
     tileDetailSeed: domains.detail,
     tileGrainSeed: domains.grain,
+    tilePathGritSeed: hash32(`${seed}:material:path-grit:v2`),
+    tilePathCrackSeed: hash32(`${seed}:material:path-cracks:v2`),
     tileNoiseOrigin: new THREE.Vector2(noiseOrigin.x, noiseOrigin.y),
     tileTextureScale: texture.scale,
     tileTextureOctaves: texture.octaves,
@@ -246,17 +354,12 @@ vTilePathWeight=tilePathWeight;vTileBorderDistance=tileBorderDistance;`,
       .replace(
         '#include <color_fragment>',
         `#include <color_fragment>
-      float tileBroad=tileFbm(vTilePosition*tileTextureScale+vec3(13.37,7.11,-19.83),tileBroadSeed,tileTextureOctaves);
-      float tileDetail=tileFbm(vTilePosition*tileDetailScale+vec3(13.37,7.11,-19.83),tileDetailSeed,max(1,(tileTextureOctaves+1)/2));
-      diffuseColor.rgb*=max(0.1,1.0+tileBroad*tileTextureStrength+tileDetail*tileDetailStrength);
-      float tileCenter=smoothstep(0.0,0.9,vTileBorderDistance);
-      float tileEdge=1.0-smoothstep(0.0,0.35,vTileBorderDistance);
-      diffuseColor.rgb*=1.0+vTilePathWeight*(tilePathCenterLight*tileCenter-tilePathEdgeShade*tileEdge);
-      float tilePixel=float(tileLatticeHash(ivec3(floor(vTilePosition*540.0)),tileGrainSeed))/4294967296.0*2.0-1.0;
-      diffuseColor.rgb*=1.0+tilePixel*tileGrain;
+${TILE_COLOR_GLSL}
     `,
       );
   };
-  material.customProgramCacheKey = () => 'tile-material-gradient-perlin-v4-continuous-world-noise';
+  material.customProgramCacheKey = () =>
+    `tile-material-gradient-perlin-style-${RENDER_STYLE_VERSION}`;
+  enableInstancePalettes(material);
   return material;
 }

@@ -982,6 +982,7 @@ export default function App() {
           {workspaceMode === 'tile' && (
             <button
               className="subtle-button"
+              aria-label={activeBulkTileId ? 'Zur Serie' : 'Bulk-Modus'}
               onClick={() => (activeBulkTileId ? returnToBulk() : setWorkspaceMode('bulk'))}
             >
               <Grid3X3 size={15} />

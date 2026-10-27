@@ -8,6 +8,8 @@ import {
   buildFieldBorders,
   FIELD_BORDER_COLOR,
   FIELD_BORDER_LIFT,
+  FIELD_BORDER_WIDTH,
+  OUTER_FIELD_BORDER_COLOR,
   isOuterHexEdge,
 } from '../src/render/borders';
 import { buildSelectionOutline } from '../src/render/selection';
@@ -235,27 +237,41 @@ describe('inner tile border band', () => {
   });
 });
 
-describe('open entrance contours and border caching', () => {
-  it('removes every outer-mouth crossbar while preserving the full preview selection outline', () => {
+describe('closed entrance contours and border caching', () => {
+  it('bounds each outer mouth with normal field-width ink while the thick tile band stays interrupted', () => {
     const config = structuredClone(defaultConfig);
     config.decoration.enabled = false;
     const model = generateTile(config),
       batch = buildTileSurfaces(model, config);
     const closed = buildFieldBorders(model, batch.geometry),
-      open = buildFieldBorders(model, batch.geometry, { openOuterEntrances: true });
+      band = buildTileBorder(model, settings({ width: 0.1 }), batch.geometry, batch.regions);
     expect(closed.segments.some((edge) => isOuterHexEdge(edge.start, edge.end))).toBe(true);
-    expect(open.segments.some((edge) => isOuterHexEdge(edge.start, edge.end))).toBe(false);
     for (const entrance of model.entrances) {
-      const point = { x: entrance.center.x * (1 - 1e-6), y: entrance.center.y * (1 - 1e-6) };
-      expect(rayHits(closed.geometry, point).length).toBeGreaterThan(0);
-      expect(rayHits(open.geometry, point)).toHaveLength(0);
+      const inside = (depth: number) => ({
+        x: entrance.center.x * (1 - depth / APOTHEM),
+        y: entrance.center.y * (1 - depth / APOTHEM),
+      });
+      const point = inside(FIELD_BORDER_WIDTH * 0.5);
+      const hits = rayHits(closed.geometry, point);
+      expect(hits.length).toBeGreaterThan(0);
+      const color = closed.geometry.getAttribute('color'),
+        face = hits[0]!.face!;
+      for (const index of [face.a, face.b, face.c])
+        expect([color.getX(index), color.getY(index), color.getZ(index)]).toEqual([0, 0, 0]);
+      expect(rayHits(closed.geometry, inside(FIELD_BORDER_WIDTH * 1.2))).toHaveLength(0);
+      expect(rayHits(band, point)).toHaveLength(0);
+      expect(rayHits(band, inside(0.04))).toHaveLength(0);
       const selected = buildSelectionOutline(model, [], entrance.fieldId!, batch.geometry);
       expect(rayHits(selected.geometry, point).length).toBeGreaterThan(0);
       selected.geometry.dispose();
     }
+    expect(OUTER_FIELD_BORDER_COLOR).toBe('#000000');
+    const colors = closed.geometry.getAttribute('color');
+    expect(colors.count).toBe(closed.geometry.getAttribute('position').count);
+    expect(Array.from(colors.array).some((value) => value > 0)).toBe(true);
     batch.geometry.dispose();
     closed.geometry.dispose();
-    open.geometry.dispose();
+    band.dispose();
   });
   it('keeps generated field footprints clear and produces one finite bounded mesh at a wide border setting', () => {
     const config = structuredClone(defaultConfig);
@@ -273,13 +289,21 @@ describe('open entrance contours and border caching', () => {
         .filter((region) => region.fieldId)
         .flatMap((region) => region.polygons),
       masks = tileBorderMasks(model, config.border.width, batch.regions);
+    let largestOverlap = 0;
     for (const mask of masks)
       for (const polygon of fields)
-        expect(Math.abs(polygonArea(clipPolygon(mask, polygon)))).toBeLessThan(1e-9);
+        largestOverlap = Math.max(
+          largestOverlap,
+          Math.abs(polygonArea(clipPolygon(mask, polygon))),
+        );
+    expect(largestOverlap).toBeLessThan(1e-9);
+    const outer = hexagon();
+    let allVerticesInside = true;
     for (let i = 0; i < p.count; i++)
-      expect(
-        pointInPolygon({ x: p.getX(i) * (1 - 1e-7), y: p.getZ(i) * (1 - 1e-7) }, hexagon()),
-      ).toBe(true);
+      allVerticesInside =
+        pointInPolygon({ x: p.getX(i) * (1 - 1e-7), y: p.getZ(i) * (1 - 1e-7) }, outer) &&
+        allVerticesInside;
+    expect(allVerticesInside).toBe(true);
     batch.geometry.dispose();
     band.dispose();
   });

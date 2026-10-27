@@ -105,6 +105,15 @@ export class SurfaceBuffer {
   readonly colors: number[] = [];
   readonly pathWeights: number[] = [];
   readonly borderDistances: number[] = [];
+  private readonly rgb = new Map<string, THREE.Color>();
+  private color(value: string): THREE.Color {
+    let color = this.rgb.get(value);
+    if (!color) {
+      color = new THREE.Color(value);
+      this.rgb.set(value, color);
+    }
+    return color;
+  }
   private vertex(
     p: Point,
     height: number,
@@ -141,15 +150,15 @@ export class SurfaceBuffer {
     if (polygon.length < 3) return;
     const ordered = polygonArea(polygon) >= 0 ? polygon : [...polygon].reverse();
     const center = centroid(ordered);
-    const rgb = new THREE.Color(color);
+    const rgb = this.color(color);
     ordered.forEach((a, i) => {
       const b = ordered[(i + 1) % ordered.length];
       if (b) this.triangle(center, a, b, height, rgb, pathWeight, distance, reverse);
     });
   }
   wall(a: Point, b: Point, low: number, high: number, colorLow: string, colorHigh: string): void {
-    const lo = new THREE.Color(colorLow),
-      hi = new THREE.Color(colorHigh);
+    const lo = this.color(colorLow),
+      hi = this.color(colorHigh);
     const vertices: [
       [Point, number, THREE.Color],
       [Point, number, THREE.Color],
@@ -186,14 +195,18 @@ export function pathDistance(
   borders: readonly WallSegment[],
   normalizer: number,
 ): number {
-  return Math.max(
-    0,
-    Math.min(
-      1,
-      Math.min(...borders.map((edge) => distanceToSegment(p, edge.a, edge.b))) /
-        Math.max(0.001, normalizer),
-    ),
-  );
+  let nearest = Infinity;
+  for (const { a, b } of borders) {
+    const dx = b.x - a.x,
+      dy = b.y - a.y,
+      length = dx * dx + dy * dy;
+    const t =
+      length > 0 ? Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / length)) : 0;
+    const x = p.x - a.x - t * dx,
+      y = p.y - a.y - t * dy;
+    nearest = Math.min(nearest, x * x + y * y);
+  }
+  return Math.min(1, Math.sqrt(nearest) / Math.max(0.001, normalizer));
 }
 
 export interface BatchedSurfaces {
@@ -217,9 +230,23 @@ export function buildTileSurfaces(tile: GeneratedTile, config: TileConfig): Batc
   );
   const ground: CameraGroundPoint[] = [];
   const maxHeight = 0.08 + config.terrain.elevation;
-  const wallColor = (h: number): string =>
-    sampleGradient(config.terrain.wallGradient, (h - TILE_BOTTOM) / (maxHeight - TILE_BOTTOM));
+  const wallColors = new Map<number, string>();
+  const wallColor = (h: number): string => {
+    let color = wallColors.get(h);
+    if (!color) {
+      color = sampleGradient(
+        config.terrain.wallGradient,
+        (h - TILE_BOTTOM) / (maxHeight - TILE_BOTTOM),
+      );
+      wallColors.set(h, color);
+    }
+    return color;
+  };
+  const heights = new Map<number, SurfaceRegion[]>();
   for (const region of regions) {
+    const sameHeight = heights.get(region.height) ?? [];
+    sameHeight.push(region);
+    heights.set(region.height, sameHeight);
     const borders = fieldBorders.get(region.id) ?? [];
     const distance = (p: Point): number =>
       pathDistance(p, borders, fieldScales.get(region.id) ?? 0.1);
@@ -255,11 +282,9 @@ export function buildTileSurfaces(tile: GeneratedTile, config: TileConfig): Batc
       x: (wall.a.x + wall.b.x) / 2 - normal.x * 1e-5,
       y: (wall.a.y + wall.b.y) / 2 - normal.y * 1e-5,
     };
-    const owner = regions.find(
-      (region) =>
-        Math.abs(region.height - wall.high) < 1e-6 &&
-        region.polygons.some((piece) => pointInPolygon(mid, piece)),
-    );
+    const owner = heights
+      .get(wall.high)
+      ?.find((region) => region.polygons.some((piece) => pointInPolygon(mid, piece)));
     if (!owner) continue;
     const d = config.terrain.overhang;
     const cap = clipPolygon(
@@ -272,9 +297,20 @@ export function buildTileSurfaces(tile: GeneratedTile, config: TileConfig): Batc
       boundary,
     );
     if (cap.length < 3) continue;
+    const capMinX = Math.min(...cap.map((p) => p.x)),
+      capMaxX = Math.max(...cap.map((p) => p.x)),
+      capMinY = Math.min(...cap.map((p) => p.y)),
+      capMaxY = Math.max(...cap.map((p) => p.y));
     let caps = [cap];
     for (const mask of fieldMasks) {
       if (owner.fieldId && mask.fieldId === owner.fieldId) continue;
+      if (
+        capMaxX <= mask.minX + 1e-9 ||
+        capMinX >= mask.maxX - 1e-9 ||
+        capMaxY <= mask.minY + 1e-9 ||
+        capMinY >= mask.maxY - 1e-9
+      )
+        continue;
       caps = caps.flatMap((piece) => {
         const minX = Math.min(...piece.map((p) => p.x)),
           maxX = Math.max(...piece.map((p) => p.x)),

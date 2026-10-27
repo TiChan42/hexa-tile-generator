@@ -5,12 +5,13 @@ import {
   boundaryCells,
   createSeededProject,
   defaultConfig,
+  evaluateTileRules,
   generateTile,
   isConnectedSelection,
   prepareFieldShapeEdit,
 } from '../../src/core';
-import type { GeneratedTile } from '../../src/core';
-import { clickWorld, importProject, project } from './helpers';
+import type { GameField, GeneratedTile } from '../../src/core';
+import { clickWorld, editableExtension, importProject, project } from './helpers';
 import { landscapeSelectionColor } from '../../src/render/selection';
 import { PROJECT_STORAGE_KEY } from '../../src/editor/storage';
 
@@ -100,16 +101,40 @@ for (const width of [1280, 390]) {
     config.export.size = 256;
     config.decoration.enabled = false;
     const tile = generateTile(config);
-    const entrance = tile.entrances[0];
-    const field = tile.fields.find((field) => field.id === entrance.fieldId)!;
-    const removed = field.cellIds.find(
-      (id) =>
-        !entrance.cellIds.includes(id) &&
-        isConnectedSelection(
-          field.cellIds.filter((owned) => owned !== id),
-          tile.cells,
-        ),
-    )!;
+    const normalFields = tile.fields.filter((field) => !field.isCenter),
+      minimum = Math.min(...normalFields.map((field) => field.area));
+    let fixture: { field: GameField; removed: string; threshold: number } | undefined;
+    for (const field of [...normalFields].sort((a, b) => a.area - b.area)) {
+      for (const removed of field.cellIds) {
+        const ids = field.cellIds.filter((id) => id !== removed);
+        if (!isConnectedSelection(ids, tile.cells)) continue;
+        try {
+          const edited = generateTile(prepareFieldShapeEdit(config, tile, field.id, ids)),
+            area = edited.fields.find((candidate) => candidate.id === field.id)!.area;
+          if (area >= minimum - 1e-10 || !edited.stats.connected) continue;
+          // Isolate the configurable area rule: every original field is valid,
+          // and this legal one-cell edit crosses the threshold without disconnecting paths.
+          const threshold = (minimum + area) / 2,
+            rules = { ...config.rules, minFieldArea: threshold },
+            issues = evaluateTileRules({ ...config, rules }, edited);
+          if (
+            issues.length !== 1 ||
+            issues[0]!.code !== 'minimum-area' ||
+            issues[0]!.fieldId !== field.id
+          )
+            continue;
+          fixture = { field, removed, threshold };
+          break;
+        } catch {
+          /* Preserve fixed mouths and complete portals; try a different interior cell. */
+        }
+      }
+      if (fixture) break;
+    }
+    expect(fixture).toBeDefined();
+    const { field, removed, threshold } = fixture!;
+    config.rules.minFieldArea = threshold;
+    expect(evaluateTileRules(config, tile)).toEqual([]);
     await page.goto('/');
     await importProject(page, config);
     await editField(page, field.id);
@@ -127,6 +152,12 @@ for (const width of [1280, 390]) {
           (await project(page)).paths.fields.find((edit) => edit.id === field.id)?.cellIds,
       )
       .not.toContain(removed);
+    const saved = await project(page),
+      edited = generateTile(saved);
+    expect(edited.stats.connected).toBe(true);
+    expect(evaluateTileRules(saved, edited)).toMatchObject([
+      { code: 'minimum-area', fieldId: field.id },
+    ]);
     await expect(page.getByRole('button', { name: 'PNG exportieren', exact: true })).toBeDisabled();
     await expect(quick).toContainText('Export gesperrt');
     await quick.getByText('Prüfregeln', { exact: true }).click();
@@ -152,17 +183,8 @@ test('field shapes can be applied while a custom object model is unavailable', a
   config.camera.mode = 'top';
   config.decoration.modelSlots = { tree: 'model-unavailable' };
   const tile = generateTile(config);
-  const field = tile.fields.find((field) => !field.isCenter)!;
+  const { field, cell: free } = editableExtension(config, tile);
   config.paths.fields.push({ id: field.id, cellIds: [], action: field.action, label: '' });
-  const free = tile.cells.find(
-    (cell) =>
-      !cell.fieldId &&
-      !cell.reserved &&
-      !cell.landscapeOnly &&
-      cell.entranceSide === undefined &&
-      cell.centerPort === undefined &&
-      cell.neighbors.some((id) => field.cellIds.includes(id)),
-  )!;
   await page.route('**/api/models/model-unavailable', (route) =>
     route.fulfill({ status: 404, json: { error: 'Modell nicht vorhanden.' } }),
   );
@@ -209,29 +231,7 @@ for (const source of ['auto', 'complete-seed'] as const) {
     config.camera.mode = 'top';
     config.decoration.enabled = false;
     const initial = generateTile(config);
-    const field = initial.fields.find(
-      (field) =>
-        !field.isCenter &&
-        !initial.entrances.some((entrance) => entrance.fieldId === field.id) &&
-        initial.cells.some(
-          (cell) =>
-            !cell.fieldId &&
-            !cell.reserved &&
-            !cell.landscapeOnly &&
-            cell.entranceSide === undefined &&
-            cell.centerPort === undefined &&
-            cell.neighbors.some((id) => field.cellIds.includes(id)),
-        ),
-    )!;
-    const free = initial.cells.find(
-      (cell) =>
-        !cell.fieldId &&
-        !cell.reserved &&
-        !cell.landscapeOnly &&
-        cell.entranceSide === undefined &&
-        cell.centerPort === undefined &&
-        cell.neighbors.some((id) => field.cellIds.includes(id)),
-    )!;
+    const { field, cell: free } = editableExtension(config, initial);
     const metadata = {
       id: field.id,
       cellIds: config.paths.fields.find((edit) => edit.id === field.id)?.cellIds ?? [],

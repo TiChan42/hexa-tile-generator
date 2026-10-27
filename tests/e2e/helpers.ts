@@ -1,7 +1,7 @@
 import { expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { configSchema } from '../../src/core';
-import type { Point, TileConfig } from '../../src/core';
+import { configSchema, prepareFieldShapeEdit } from '../../src/core';
+import type { GeneratedTile, Point, TileConfig } from '../../src/core';
 import { PROJECT_STORAGE_KEY } from '../../src/editor/storage';
 
 export async function project(page: Page): Promise<TileConfig> {
@@ -41,4 +41,28 @@ export async function clickWorld(page: Page, point: Point) {
     bounds.x + bounds.width / 2 + point.x * scale,
     bounds.y + bounds.height / 2 + point.y * scale,
   );
+}
+
+/** Choose legal edit data rather than assuming the first neighboring cell is an interior cell. */
+export function editableExtension(config: TileConfig, tile: GeneratedTile) {
+  for (const field of tile.fields) {
+    if (field.isCenter || tile.entrances.some((entrance) => entrance.fieldId === field.id))
+      continue;
+    for (const cell of tile.cells) {
+      if (
+        cell.fieldId ||
+        cell.reserved ||
+        cell.landscapeOnly ||
+        !cell.neighbors.some((id) => field.cellIds.includes(id))
+      )
+        continue;
+      try {
+        prepareFieldShapeEdit(config, tile, field.id, [...field.cellIds, cell.id]);
+        return { field, cell };
+      } catch {
+        /* Try the next structurally editable neighbor. */
+      }
+    }
+  }
+  throw new Error('Kein freier, strukturell gültiger Nachbar für die Feldformprüfung.');
 }

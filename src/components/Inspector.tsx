@@ -541,6 +541,27 @@ export default function Inspector(props: Props) {
                 })
               }
             />
+            <button
+              className="button secondary full"
+              onClick={() =>
+                update((draft) => {
+                  delete draft.legacyLayout;
+                  delete draft.layoutVersion;
+                  draft.paths.auto = true;
+                  draft.paths.fields = [];
+                  draft.decoration.density =
+                    draft.decoration.sourceDensity ?? draft.decoration.density;
+                  draft.decoration.placements = [];
+                })
+              }
+            >
+              Organisches Wegenetz neu erzeugen
+            </button>
+            <p className="hint">
+              Erzeugt kleinere Felder mit meist zwei bis drei Nachbarn und Rasteranschlüssen am
+              Pentagon. Feldanpassungen und Objektplatzierungen werden dabei ersetzt; Rückgängig
+              stellt sie wieder her.
+            </p>
             <Toggle
               label="Rundweg verbinden"
               checked={c.paths.loop}
@@ -557,6 +578,8 @@ export default function Inspector(props: Props) {
               max={24}
               onChange={(v) =>
                 update((d) => {
+                  delete d.legacyLayout;
+                  delete d.layoutVersion;
                   d.paths.fieldCount = v;
                   d.paths.auto = true;
                   d.paths.fields = [];

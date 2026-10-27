@@ -14,6 +14,7 @@ import { SurfaceProjection } from './surfaceProjection';
 import { distanceToSegment, fieldSurfaceRegions, type SurfaceRegion } from './surfaces';
 
 export const FIELD_BORDER_COLOR = '#2d362e';
+export const OUTER_FIELD_BORDER_COLOR = '#000000';
 export const FIELD_BORDER_WIDTH = 0.007;
 export const CENTER_BORDER_WIDTH = 0.0085;
 export const FIELD_BORDER_LIFT = 0.0025;
@@ -42,10 +43,6 @@ export function isOuterHexEdge(a: Point, b: Point): boolean {
     return distanceToSegment(a, start, end) < 1e-7 && distanceToSegment(b, start, end) < 1e-7;
   });
 }
-export interface FieldBorderOptions {
-  openOuterEntrances?: boolean;
-}
-
 /** Geometry is the exterior of the whole field, independent of its internal elevation steps. */
 export function fieldOutlineSegments(tile: GeneratedTile, field: GameField): FieldBorderSegment[] {
   const regions = fieldSurfaceRegions(tile, field);
@@ -109,19 +106,29 @@ function sharedStepInner(
 export function buildFieldBorders(
   tile: GeneratedTile,
   terrain?: THREE.BufferGeometry,
-  options: FieldBorderOptions = {},
 ): { geometry: THREE.BufferGeometry; segments: FieldBorderSegment[]; steps: BorderStep[] } {
   const projection = terrain ? new SurfaceProjection(terrain) : undefined;
   const positions: number[] = [],
+    colors: number[] = [],
     segments: FieldBorderSegment[] = [],
     steps: BorderStep[] = [];
+  const fieldInk = new THREE.Color(FIELD_BORDER_COLOR),
+    outerInk = new THREE.Color(OUTER_FIELD_BORDER_COLOR);
+  let ink = fieldInk;
+  const appendColors = (from: number): void => {
+    for (let i = from; i < positions.length; i += 3) colors.push(ink.r, ink.g, ink.b);
+  };
   const triangle = (a: Point, b: Point, c: Point, height: (p: Point) => number): void => {
+    const from = positions.length;
     for (const p of [a, c, b]) positions.push(p.x, height(p), p.y);
+    appendColors(from);
   };
   const polygon = (piece: Point[], height: (p: Point) => number): void => {
     if (piece.length < 3 || Math.abs(polygonArea(piece)) < 1e-12) return;
     if (projection) {
+      const from = positions.length;
       projection.append(piece, FIELD_BORDER_LIFT, positions);
+      appendColors(from);
       return;
     }
     const ordered = polygonArea(piece) > 0 ? piece : [...piece].reverse(),
@@ -132,14 +139,13 @@ export function buildFieldBorders(
     });
   };
   for (const field of tile.fields) {
-    const fieldSegments = fieldOutlineSegments(tile, field).filter(
-        (edge) => !options.openOuterEntrances || !isOuterHexEdge(edge.start, edge.end),
-      ),
+    const fieldSegments = fieldOutlineSegments(tile, field),
       width = field.isCenter ? CENTER_BORDER_WIDTH : FIELD_BORDER_WIDTH;
     segments.push(...fieldSegments);
     const joins = new Map<string, { point: Point; edges: FieldBorderSegment[] }>(),
       rounds = new Set<string>();
     for (const edge of fieldSegments) {
+      ink = isOuterHexEdge(edge.start, edge.end) ? outerInk : fieldInk;
       const extent = length(edge.start, edge.end),
         inward = {
           x: -(edge.end.y - edge.start.y) / extent,
@@ -199,6 +205,9 @@ export function buildFieldBorders(
             bp = b.height + FIELD_BORDER_LIFT;
           const low = Math.min(ap, bp),
             high = Math.max(ap, bp);
+          ink =
+            isOuterHexEdge(a.start, a.end) && isOuterHexEdge(b.start, b.end) ? outerInk : fieldInk;
+          const from = positions.length;
           positions.push(
             point.x,
             ap,
@@ -219,12 +228,14 @@ export function buildFieldBorders(
             ap,
             inner.y,
           );
+          appendColors(from);
           steps.push({ point, inner, low, high, fieldId: field.id });
         }
     });
   }
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
   geometry.computeBoundingSphere();
   return { geometry, segments, steps };
 }

@@ -234,6 +234,7 @@ export default function BulkWorkspace({
           <input
             ref={importInput}
             type="file"
+            aria-label="Serie importieren"
             accept=".json,application/json"
             hidden
             onChange={(event) => {
@@ -346,6 +347,10 @@ export default function BulkWorkspace({
           </label>
           {currentUniformGrid && (
             <div className="bulk-settings">
+              <p className="bulk-hint">
+                Eine neue Rasterart oder Auflösung baut Feldformen und Objektplatzierungen aller
+                Kacheln neu auf.
+              </p>
               <label className="bulk-label">
                 Rasterart
                 <select

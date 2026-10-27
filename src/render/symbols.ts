@@ -2,6 +2,7 @@ import { polygonArea } from '../core/geometry';
 import { fieldSurfaceRegions, fieldPolygons } from './surfaces';
 import type { Point, GeneratedTile, GameField } from '../core/types';
 import { exposedWalls } from './walls';
+import { widestSymbolAnchor } from './symbolAnchor';
 
 /** Size a square action glyph from visible playing area while keeping it inside its border. */
 export function fieldSymbolSize(polygons: Point[][], center: Point): number {
@@ -21,12 +22,43 @@ export function fieldSymbolSize(polygons: Point[][], center: Point): number {
   return Math.max(0.012, Math.min(0.18, Math.sqrt(area) * 0.42, clearance * 1.2));
 }
 
-/** Terrace glyphs remain on their actual anchor elevation and inside its level footprint. */
+/** Select the broadest usable plateau before scaling; symbols never bridge terrace seams. */
 export function fieldSymbolLayout(
   tile: GeneratedTile,
   field: GameField,
-): { size: number; height: number } {
+): { center: Point; size: number; height: number } {
   const regions = fieldSurfaceRegions(tile, field);
+  if (!field.isCenter) {
+    const levels = new Map<number, Point[][]>();
+    for (const region of regions) {
+      const polygons = levels.get(region.height) ?? [];
+      polygons.push(...region.polygons);
+      levels.set(region.height, polygons);
+    }
+    const candidates = [...levels].map(([height, polygons]) => ({
+      ...widestSymbolAnchor(polygons, field.center),
+      height,
+      polygons,
+    }));
+    const distance = (point: Point) =>
+      (point.x - field.center.x) ** 2 + (point.y - field.center.y) ** 2;
+    candidates.sort(
+      (a, b) =>
+        b.clearance - a.clearance || distance(a.point) - distance(b.point) || a.height - b.height,
+    );
+    const selected = candidates[0];
+    if (selected) {
+      const area = selected.polygons.reduce(
+        (sum, polygon) => sum + Math.abs(polygonArea(polygon)),
+        0,
+      );
+      return {
+        center: selected.point,
+        size: Math.min(0.18, Math.sqrt(area) * 0.42, selected.clearance * 1.2),
+        height: selected.height,
+      };
+    }
+  }
   const sameLevel = regions
     .filter((region) => Math.abs(region.height - field.symbolHeight) < 1e-7)
     .flatMap((region) => region.polygons);
@@ -34,5 +66,9 @@ export function fieldSymbolLayout(
     field.maxHeight > field.height + 1e-7 && sameLevel.length
       ? sameLevel
       : fieldPolygons(tile, field);
-  return { size: fieldSymbolSize(polygons, field.center), height: field.symbolHeight };
+  return {
+    center: field.center,
+    size: fieldSymbolSize(polygons, field.center),
+    height: field.symbolHeight,
+  };
 }

@@ -1,3 +1,4 @@
+import { v13MigrationAdditions } from './fixtures/migration';
 import { createServer, type Server } from 'node:http';
 import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, rm, mkdir, writeFile } from 'node:fs/promises';
@@ -415,7 +416,7 @@ describe('versioned exports and explicit legacy migration', () => {
     const migration = migrateConfig(legacy);
     expect(migration.migrated).toBe(true);
     expect(migration.notices.length).toBeGreaterThan(0);
-    expect(migration.notices.join(' ')).toContain('Generator 10');
+    expect(migration.notices.join(' ')).toContain('Generator 15');
     const migrated = parseConfig(legacy);
     expect(migrated).toEqual(migration.config);
     expect(migrated.center).toEqual({
@@ -426,14 +427,14 @@ describe('versioned exports and explicit legacy migration', () => {
       offset: { x: 0, y: 0 },
       portalWidth: 0.45,
     });
-    expect(migrated.schemaVersion).toBe(10);
-    expect(migrated.generatorVersion).toBe('10.1.0');
+    expect(migrated.schemaVersion).toBe(15);
+    expect(migrated.generatorVersion).toBe('15.0.0');
     expect(migrated.seed).toBe(legacy.seed);
     const saved = await post('/api/tiles', { config: migrated, png: pngData() });
     expect(saved.status).toBe(201);
     const manifest = (await saved.json()) as { id: string; generatorVersion: string };
     expect(manifest.id).not.toBe(id);
-    expect(manifest.generatorVersion).toBe('10.1.0');
+    expect(manifest.generatorVersion).toBe('15.0.0');
     expect(await (await fetch(`${base}/api/tiles/${manifest.id}`)).json()).toEqual(migrated);
     expect(await readFile(join(directory, 'config.json'), 'utf8')).toBe(oldJson);
     expect(await readFile(join(directory, 'tile.png'))).toEqual(oldPng);
@@ -441,7 +442,7 @@ describe('versioned exports and explicit legacy migration', () => {
     const listed = (await (await fetch(`${base}/api/tiles`)).json()) as {
       generatorVersion: string;
     }[];
-    expect(listed.map((entry) => entry.generatorVersion).sort()).toEqual(['1.0.0', '10.1.0']);
+    expect(listed.map((entry) => entry.generatorVersion).sort()).toEqual(['1.0.0', '15.0.0']);
   });
 
   it('rejects legacy or mismatched versions during save instead of pairing an old PNG with changed generator semantics', async () => {
@@ -529,8 +530,7 @@ it('saves current eighteen-kind projects and requires explicit lossless migratio
   expect(migrated).toEqual({
     ...legacy,
     paths,
-    schemaVersion: 10,
-    generatorVersion: '10.1.0',
+    ...v13MigrationAdditions(legacy),
     editing: defaultConfig.editing,
     actions: defaultConfig.actions,
     rules: defaultConfig.rules,
@@ -540,7 +540,7 @@ it('saves current eighteen-kind projects and requires explicit lossless migratio
   const saved = await post('/api/tiles', { config: migrated, png: pngData() });
   expect(saved.status).toBe(201);
   const manifest = (await saved.json()) as { id: string; generatorVersion: string };
-  expect(manifest.generatorVersion).toBe('10.1.0');
+  expect(manifest.generatorVersion).toBe('15.0.0');
   expect(await (await fetch(`${base}/api/tiles/${manifest.id}`)).json()).toEqual(migrated);
   expect(JSON.stringify(legacy)).toBe(before);
   const expanded = structuredClone(migrated);
@@ -576,14 +576,14 @@ it('keeps saved V5 ramp configs byte-identical and stores migrated stepped confi
   const response = await post('/api/tiles', { config: current, png: pngData() });
   expect(response.status).toBe(201);
   const manifest = (await response.json()) as { id: string; generatorVersion: string };
-  expect(manifest.generatorVersion).toBe('10.1.0');
+  expect(manifest.generatorVersion).toBe('15.0.0');
   expect(manifest.id).not.toBe(id);
   expect(await readFile(join(directory, 'config.json'), 'utf8')).toBe(oldJson);
   expect(await readFile(join(directory, 'tile.png'))).toEqual(png);
   expect(await (await fetch(`${base}/api/tiles/${manifest.id}`)).json()).toEqual(current);
 });
 
-it('requires explicit V6 migration and stores the unchanged editable field configuration as V7', async () => {
+it('requires explicit V6 migration and stores the unchanged editable field configuration as V13', async () => {
   const legacy = {
     ...structuredClone(frozenV6),
     export: { size: 128, transparent: true },
@@ -623,8 +623,7 @@ it('requires explicit V6 migration and stores the unchanged editable field confi
   const migrated = migrateConfig(legacy).config;
   expect(migrated).toEqual({
     ...legacy,
-    schemaVersion: 10,
-    generatorVersion: '10.1.0',
+    ...v13MigrationAdditions(legacy),
     editing: defaultConfig.editing,
     actions: defaultConfig.actions,
     rules: defaultConfig.rules,
@@ -634,7 +633,7 @@ it('requires explicit V6 migration and stores the unchanged editable field confi
   const response = await post('/api/tiles', { config: migrated, png: pngData() });
   expect(response.status).toBe(201);
   const manifest = (await response.json()) as { id: string; generatorVersion: string };
-  expect(manifest.generatorVersion).toBe('10.1.0');
+  expect(manifest.generatorVersion).toBe('15.0.0');
   expect(await (await fetch(`${base}/api/tiles/${manifest.id}`)).json()).toEqual(migrated);
   expect(JSON.stringify(legacy)).toBe(before);
 });
@@ -706,8 +705,7 @@ describe('server-enforced persistent export rules', () => {
     const migrated = migrateConfig(old).config;
     expect(migrated).toEqual({
       ...old,
-      schemaVersion: 10,
-      generatorVersion: '10.1.0',
+      ...v13MigrationAdditions(old),
       editing: defaultConfig.editing,
       actions: defaultConfig.actions,
       rules: defaultConfig.rules,
@@ -727,7 +725,7 @@ it('reports impossible geometry as an explicit export validation error before wr
   expect(await (await fetch(`${base}/api/tiles`)).json()).toEqual([]);
 });
 
-it('requires explicit V8 migration and preserves its rules and placements when saving V10', async () => {
+it('requires explicit V8 migration and preserves its rules and placements when saving V13', async () => {
   const old = {
     ...structuredClone(frozenV8),
     export: { size: 128, transparent: true },
@@ -752,8 +750,7 @@ it('requires explicit V8 migration and preserves its rules and placements when s
   const current = migrateConfig(old).config;
   expect(current).toEqual({
     ...old,
-    schemaVersion: 10,
-    generatorVersion: '10.1.0',
+    ...v13MigrationAdditions(old),
     editing: defaultConfig.editing,
     actions: defaultConfig.actions,
     border: defaultConfig.border,
@@ -762,7 +759,7 @@ it('requires explicit V8 migration and preserves its rules and placements when s
   const response = await post('/api/tiles', { config: current, png: pngData() });
   expect(response.status).toBe(201);
   const manifest = (await response.json()) as { id: string; generatorVersion: string };
-  expect(manifest.generatorVersion).toBe('10.1.0');
+  expect(manifest.generatorVersion).toBe('15.0.0');
   expect(await (await fetch(`${base}/api/tiles/${manifest.id}`)).json()).toEqual(current);
   expect(JSON.stringify(old)).toBe(before);
 });
@@ -794,8 +791,7 @@ it('requires V9 migration before persisting new preferences and accepts all-zero
   const config = migrateConfig(legacy).config;
   expect(config).toEqual({
     ...legacy,
-    schemaVersion: 10,
-    generatorVersion: '10.1.0',
+    ...v13MigrationAdditions(legacy),
     editing: defaultConfig.editing,
     actions: defaultConfig.actions,
   });
@@ -806,7 +802,7 @@ it('requires V9 migration before persisting new preferences and accepts all-zero
   const response = await post('/api/tiles', { config, png: pngData() });
   expect(response.status).toBe(201);
   const manifest = (await response.json()) as { id: string; generatorVersion: string };
-  expect(manifest.generatorVersion).toBe('10.1.0');
+  expect(manifest.generatorVersion).toBe('15.0.0');
   expect(await (await fetch(`${base}/api/tiles/${manifest.id}`)).json()).toEqual(config);
   expect(JSON.stringify(legacy)).toBe(before);
 });

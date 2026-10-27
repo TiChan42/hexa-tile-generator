@@ -1,4 +1,6 @@
 import type { Point, TileCell, TileConfig } from './types';
+
+const compareText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 import { MIN_FIELD_AREA } from './limits';
 const EPS = 1e-9;
 export function polygonArea(points: Point[]): number {
@@ -303,7 +305,7 @@ export function centerPortals(
   return { collar, portals };
 }
 
-export function buildGrid(
+function buildLegacyGrid(
   config: TileConfig['grid'],
   center: Point[] = pentagon(),
   options: { portalWidth?: number } = {},
@@ -427,4 +429,257 @@ export function boundaryCells(cells: TileCell[], sideIndex: number): TileCell[] 
         (left.center.y - a.y) * (b.y - a.y) -
         ((right.center.x - a.x) * (b.x - a.x) + (right.center.y - a.y) * (b.y - a.y)),
     );
+}
+
+function convexHull(points: Point[]): Point[] {
+  const sorted = [...points].sort((a, b) => a.x - b.x || a.y - b.y);
+  const chain = (list: Point[]) => {
+    const result: Point[] = [];
+    for (const point of list) {
+      while (
+        result.length >= 2 &&
+        side(result[result.length - 2]!, result[result.length - 1]!, point) <= 1e-12
+      )
+        result.pop();
+      result.push(point);
+    }
+    return result;
+  };
+  return [...chain(sorted).slice(0, -1), ...chain([...sorted].reverse()).slice(0, -1)];
+}
+
+/** A centered mouth widens to an existing complete raster edge outside the pentagon's footprint. */
+export function rasterCenterPortals(
+  grid: TileConfig['grid'],
+  polygon: Point[],
+  width = 0.45,
+  supplied = buildUntouchedGrid(grid),
+): (CenterPortalGeometry & { targetId: string; neck: Point[]; shoulders: Point[][] })[] {
+  const center = centroid(polygon);
+  const { collar, portals: base } = centerPortals(polygon, width);
+  const blocked = new Set(
+    buildEntranceFootprints(grid, supplied).flatMap((entry) => entry.cellIds),
+  );
+  const footprint = new Set(
+    supplied
+      .filter((cell) => polygonArea(clipPolygon(cell.polygon, collar)) > 1e-12)
+      .map((cell) => cell.id),
+  );
+  const boundary = new Set(
+    Array.from({ length: 6 }, (_, side) => boundaryCells(supplied, side)).flatMap((cells) =>
+      cells.map((cell) => cell.id),
+    ),
+  );
+  const used = new Set<string>(),
+    result: (CenterPortalGeometry & { targetId: string; neck: Point[]; shoulders: Point[][] })[] =
+      [];
+  for (const portal of base) {
+    const midpoint = {
+      x: (portal.portalStart.x + portal.portalEnd.x) / 2,
+      y: (portal.portalStart.y + portal.portalEnd.y) / 2,
+    };
+    const direction = { x: midpoint.x - center.x, y: midpoint.y - center.y };
+    const tangent = { x: portal.end.x - portal.start.x, y: portal.end.y - portal.start.y },
+      length = Math.hypot(tangent.x, tangent.y);
+    const depth = Math.min(0.012, length * 0.12),
+      normal = { x: tangent.y / length, y: -tangent.x / length };
+    const neckStart = {
+      x: portal.portalStart.x + normal.x * depth,
+      y: portal.portalStart.y + normal.y * depth,
+    };
+    const neckEnd = {
+      x: portal.portalEnd.x + normal.x * depth,
+      y: portal.portalEnd.y + normal.y * depth,
+    };
+    const neck = [portal.portalStart, neckStart, neckEnd, portal.portalEnd];
+    const options = supplied
+      .filter(
+        (cell) =>
+          !footprint.has(cell.id) &&
+          !blocked.has(cell.id) &&
+          !boundary.has(cell.id) &&
+          !used.has(cell.id) &&
+          Math.hypot(cell.center.x - midpoint.x, cell.center.y - midpoint.y) <= 5 / grid.divisions,
+      )
+      .map((cell) => {
+        const scores = cell.polygon.flatMap((a, index) => {
+          const b = cell.polygon[(index + 1) % cell.polygon.length]!;
+          const edge = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+          const toward = { x: edge.x - center.x, y: edge.y - center.y };
+          const dot =
+            (toward.x * direction.x + toward.y * direction.y) /
+            (Math.hypot(toward.x, toward.y) * Math.hypot(direction.x, direction.y));
+          if (
+            dot < 0.75 ||
+            (edge.x - cell.center.x) * direction.x + (edge.y - cell.center.y) * direction.y >= -1e-8
+          )
+            return [];
+          if (
+            [a, b].some(
+              (point) =>
+                (point.x - midpoint.x) * normal.x + (point.y - midpoint.y) * normal.y <
+                depth + 1e-8,
+            )
+          )
+            return [];
+          return [Math.hypot(edge.x - midpoint.x, edge.y - midpoint.y) + (1 - dot) * 0.2];
+        });
+        return scores.length ? { cell, score: Math.min(...scores) } : null;
+      })
+      .filter((value) => value !== null)
+      .sort((a, b) => a.score - b.score || compareText(a.cell.id, b.cell.id));
+    let choice:
+      ((typeof options)[number] & { corridor: Point[]; shoulders: Point[][] }) | undefined;
+    // The envelope depends on the complete target cell, so test it only once and only until
+    // the closest valid target is found. Computing it for every edge repeated expensive cuts.
+    for (const candidate of options) {
+      const { cell } = candidate;
+      let corridor = convexHull([neckStart, neckEnd, ...cell.polygon]);
+      corridor = clipHalfPlane(corridor, neckStart, neckEnd, false);
+      corridor = clipHalfPlane(corridor, center, portal.start);
+      corridor = clipHalfPlane(corridor, portal.end, center);
+      const shoulders = subtractPolygon(corridor, cell.polygon);
+      if (
+        polygonArea(corridor) <= 1e-10 ||
+        shoulders.reduce((sum, piece) => sum + sharedBoundaryLength(piece, cell.polygon), 0) <
+          0.6 / grid.divisions ||
+        result.some(
+          (other) =>
+            polygonArea(clipPolygon(cell.polygon, other.corridor)) > 1e-10 ||
+            polygonArea(
+              clipPolygon(supplied.find((item) => item.id === other.targetId)!.polygon, corridor),
+            ) > 1e-10,
+        )
+      )
+        continue;
+      choice = { ...candidate, corridor, shoulders };
+      break;
+    }
+    if (!choice)
+      throw new Error(
+        'Das Pentagon lässt sich in dieser Größe und Position nicht über vollständige Rasterzellen anschließen.',
+      );
+    used.add(choice.cell.id);
+    result.push({
+      ...portal,
+      corridor: choice.corridor,
+      shoulders: choice.shoulders,
+      neck,
+      targetId: choice.cell.id,
+    });
+  }
+  return result;
+}
+
+export function buildGrid(
+  config: TileConfig['grid'],
+  center: Point[] = pentagon(),
+  options: { portalWidth?: number; legacy?: boolean } = {},
+): TileCell[] {
+  if (options.legacy) return buildLegacyGrid(config, center, options);
+  const originals = buildUntouchedGrid(config),
+    footprints = buildEntranceFootprints(config, originals);
+  const entries = new Map(
+    footprints.flatMap((entry) => entry.cellIds.map((id) => [id, entry.side] as const)),
+  );
+  const collar = centerPortals(center, options.portalWidth ?? 0.45).collar;
+  if (
+    originals.some(
+      (cell) => entries.has(cell.id) && polygonArea(clipPolygon(cell.polygon, collar)) > 1e-12,
+    )
+  )
+    throw new Error(
+      'Pentagon kollidiert mit festem Eingangsfeld; verschiebe oder verkleinere das Pentagon.',
+    );
+  const portals = rasterCenterPortals(config, center, options.portalWidth ?? 0.45, originals);
+  const cells: TileCell[] = [],
+    buckets = new Map<string, TileCell[]>();
+  for (const original of originals) {
+    const inside = clipPolygon(original.polygon, center),
+      touchesCenter = polygonArea(inside) > 1e-12;
+    const touches =
+      polygonArea(clipPolygon(original.polygon, collar)) > 1e-12 ||
+      portals.some((portal) =>
+        [portal.neck, ...portal.shoulders].some(
+          (shape) => polygonArea(clipPolygon(original.polygon, shape)) > 1e-12,
+        ),
+      );
+    if (touches && entries.has(original.id))
+      throw new Error(
+        'Pentagon kollidiert mit festem Eingangsfeld; verschiebe oder verkleinere das Pentagon.',
+      );
+    const pieces: TileCell[] = [];
+    if (!touches)
+      pieces.push({
+        ...original,
+        neighbors: [],
+        ...(entries.has(original.id) ? { entranceSide: entries.get(original.id)! } : {}),
+      });
+    else {
+      const make = (
+        id: string,
+        polygon: Point[],
+        hidden: boolean,
+        extra: Partial<TileCell> = {},
+      ): TileCell => ({
+        ...original,
+        id,
+        polygon,
+        center: centroid(polygon),
+        surfacePolygons: hidden ? [] : [polygon],
+        neighbors: [],
+        reserved: true,
+        rasterId: original.id,
+        rasterCenter: original.center,
+        ...extra,
+      });
+      if (touchesCenter) pieces.push(make(`${original.id}:center`, inside, true));
+      let remaining = touchesCenter
+        ? subtractPolygon(original.polygon, center)
+        : [original.polygon];
+      for (const portal of portals)
+        for (const shape of [portal.neck, ...portal.shoulders]) {
+          const next: Point[][] = [];
+          for (const piece of remaining) {
+            const overlap = clipPolygon(piece, shape);
+            if (polygonArea(overlap) > 1e-12) {
+              pieces.push(
+                make(`${original.id}:portal:${portal.index}:${pieces.length}`, overlap, false, {
+                  centerPort: portal.index,
+                  portalTargetId: portal.targetId,
+                }),
+              );
+              next.push(...subtractPolygon(piece, shape));
+            } else next.push(piece);
+          }
+          remaining = next;
+        }
+      remaining.forEach((polygon, index) => {
+        const corner = clipPolygon(polygon, collar);
+        if (polygonArea(corner) > 1e-12)
+          pieces.push(
+            make(`${original.id}:corner:${index}`, corner, false, { landscapeOnly: true }),
+          );
+        subtractPolygonParts(polygon, collar).forEach((part, j) =>
+          pieces.push(make(`${original.id}:outside:${index}:${j}`, part.polygon, false)),
+        );
+      });
+    }
+    buckets.set(original.id, pieces);
+    cells.push(...pieces);
+  }
+  const processed = new Set<string>();
+  for (const original of originals)
+    for (const a of buckets.get(original.id)!)
+      for (const b of [original.id, ...original.neighbors].flatMap((id) => buckets.get(id) ?? [])) {
+        if (a.id === b.id) continue;
+        const key = [a.id, b.id].sort().join('|');
+        if (processed.has(key)) continue;
+        processed.add(key);
+        if (sharedBoundaryLength(a.polygon, b.polygon) > 1e-8) {
+          a.neighbors.push(b.id);
+          b.neighbors.push(a.id);
+        }
+      }
+  return cells;
 }

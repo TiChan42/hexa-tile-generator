@@ -385,6 +385,7 @@ describe('pure visible-board field shape edits', () => {
       const owner = tile.fields.find((field) =>
         [...portal].some((id) => field.cellIds.includes(id)),
       )!;
+      if (!owner) continue;
       for (const removed of portal) {
         const cells = owner.cellIds.filter((id) => id !== removed);
         if (

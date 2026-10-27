@@ -102,7 +102,10 @@ describe('pure center edits of the visible field layout', () => {
         const frozen = draft.paths.fields.find((edit) => edit.id === field.id)!;
         expect(frozen.action).toBe(field.action);
         expect(frozen.label).toBe(field.label);
-        expect(Object.hasOwn(frozen, 'color')).toBe(false);
+        expect(frozen.color === undefined || frozen.color === field.color).toBe(true);
+        expect(result.fields.find((candidate) => candidate.id === field.id)!.color).toBe(
+          field.color,
+        );
         if (field.cellIds.every((id) => !affected.has(sourceId(oldCells.get(id)!))))
           expect(frozen.cellIds).toEqual(field.cellIds);
       }
@@ -110,6 +113,18 @@ describe('pure center edits of the visible field layout', () => {
       expect(configSchema.parse(draft)).toEqual(draft);
       expect(prepareCenterEdit(config, tile, nextCenter)).toEqual(draft);
       assertStructuralGeometry(result);
+    },
+  );
+
+  it.each(['hex', 'diamond'] as const)(
+    'preserves generated %s colors when a center cut changes terrain contrast',
+    (kind) => {
+      const { config, tile } = fixture(kind);
+      const draft = prepareCenterEdit(config, tile, { ...config.center, rotation: 11 });
+      const result = generateTile(draft);
+      expect(result.fields.map(({ id, color }) => ({ id, color }))).toEqual(
+        tile.fields.map(({ id, color }) => ({ id, color })),
+      );
     },
   );
 
@@ -295,7 +310,10 @@ describe('pure center edits of the visible field layout', () => {
     const tile = generateTile(config),
       draft = prepareCenterEdit(config, tile, movedCenter(config)),
       result = generateTile(draft);
-    expect(draft.paths.fields).toEqual([]);
+    expect(
+      draft.paths.fields.every((field) => field.id === 'center' && field.cellIds.length === 0),
+    ).toBe(true);
+    expect(result.fields[0]!.color).toBe(tile.fields[0]!.color);
     expect(draft.paths.auto).toBe(false);
     expect(draft.paths.enabled).toBe(false);
     expect(result.fields.map((field) => field.id)).toEqual(['center']);
@@ -321,15 +339,16 @@ describe('pure center edits of the visible field layout', () => {
       expect(config).toEqual(before);
       expect(draft.paths).toEqual({ ...expected.paths, enabled: false });
       expect(draft.decoration).toEqual(config.decoration);
+      const expectedTile = generateTile(expected);
       expect(generateTile(draft).fields.map((field) => field.id)).toEqual(['center']);
       expect(generateTile({ ...draft, paths: { ...draft.paths, enabled: true } }).fields).toEqual(
-        generateTile(expected).fields,
+        expectedTile.fields,
       );
 
       // The second change can arrive before the hidden preview has rendered the first cut.
       const secondCenter = { ...draft.center, rotation: 19 },
         second = prepareCenterEdit(draft, hidden, secondCenter),
-        expectedSecond = prepareCenterEdit(expected, generateTile(expected), secondCenter);
+        expectedSecond = prepareCenterEdit(expected, expectedTile, secondCenter);
       expect(second.paths).toEqual({ ...expectedSecond.paths, enabled: false });
       const restored = generateTile({ ...second, paths: { ...second.paths, enabled: true } });
       expect(restored.fields).toEqual(generateTile(expectedSecond).fields);
@@ -348,6 +367,7 @@ describe('pure center edits of the visible field layout', () => {
       cell = initial.cells.find(
         (cell) =>
           cell.surfacePolygons.length &&
+          !cell.reserved &&
           !cell.landscapeOnly &&
           cell.polygon.every((point) => pointInPolygon(point, polygon)),
       )!;
@@ -474,37 +494,37 @@ describe('pure center edits of the visible field layout', () => {
     expect(changed).toBeGreaterThan(0);
   });
 
-  it.each(['hex', 'diamond'] as const)(
-    'keeps structural ownership and exact area across seeded %s center edits',
-    (kind) => {
-      for (const [seed, divisions, portalWidth] of [
-        ['local-cut-a', 18, 0.25],
-        ['local-cut-b', 24, 0.7],
-      ] as const) {
-        const config = structuredClone(defaultConfig);
-        config.grid.kind = kind;
-        config.grid.divisions = divisions;
-        config.center.portalWidth = portalWidth;
-        config.seed = seed;
-        config.decoration.enabled = false;
-        const tile = generateTile(config);
-        for (const [rotation, x, y] of [
-          [17, 0.055, -0.03],
-          [-31, -0.045, 0.05],
-        ]) {
-          const draft = prepareCenterEdit(config, tile, {
-              ...config.center,
-              rotation: rotation!,
-              offset: { x: x!, y: y! },
-            }),
-            result = generateTile(draft);
-          expect(result.fields.map((field) => field.id)).toEqual(
-            tile.fields.map((field) => field.id),
-          );
-          expect(result.entrances).toEqual(tile.entrances);
-          expect(result.warnings.some((warning) => warning.includes('ignoriert'))).toBe(false);
-          assertStructuralGeometry(result);
-        }
+  it.each([
+    ['hex', 'local-cut-a', 18, 0.25],
+    ['hex', 'local-cut-b', 24, 0.7],
+    ['diamond', 'local-cut-a', 18, 0.25],
+    ['diamond', 'local-cut-b', 24, 0.7],
+  ] as const)(
+    'keeps structural ownership and exact area across seeded %s center edits (%s)',
+    (kind, seed, divisions, portalWidth) => {
+      const config = structuredClone(defaultConfig);
+      config.grid.kind = kind;
+      config.grid.divisions = divisions;
+      config.center.portalWidth = portalWidth;
+      config.seed = seed;
+      config.decoration.enabled = false;
+      const tile = generateTile(config);
+      for (const [rotation, x, y] of [
+        [17, 0.055, -0.03],
+        [-31, -0.045, 0.05],
+      ]) {
+        const draft = prepareCenterEdit(config, tile, {
+            ...config.center,
+            rotation: rotation!,
+            offset: { x: x!, y: y! },
+          }),
+          result = generateTile(draft);
+        expect(result.fields.map((field) => field.id)).toEqual(
+          tile.fields.map((field) => field.id),
+        );
+        expect(result.entrances).toEqual(tile.entrances);
+        expect(result.warnings.some((warning) => warning.includes('ignoriert'))).toBe(false);
+        assertStructuralGeometry(result);
       }
     },
   );

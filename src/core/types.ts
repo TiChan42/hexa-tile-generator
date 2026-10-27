@@ -52,8 +52,12 @@ export interface MushroomColorProfile {
   cap: [string, string, string];
 }
 export interface TileConfig {
-  schemaVersion: 13;
-  generatorVersion: '13.0.0';
+  schemaVersion: 15;
+  /** Preserve V13 raster fragments and automatic output until an explicit rebuild. */
+  legacyLayout?: true;
+  /** Preserve V14 organic field shapes until an explicit rebuild. */
+  layoutVersion?: 14;
+  generatorVersion: '15.0.0';
   name: string;
   seed: string;
   editing: { regeneratePathsOnCenterChange: boolean };
@@ -163,6 +167,8 @@ export interface TileCell {
   /** Corner guards and fixed entrance buffers cannot be claimed by ordinary path growth. */
   landscapeOnly?: boolean;
   centerPort?: number;
+  /** Whole untouched raster cell at the outer end of a V14 center transition. */
+  portalTargetId?: string;
   entranceSide?: number;
 }
 export interface GameField {

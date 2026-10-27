@@ -1,19 +1,18 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { buildTileSurfaces, type SurfaceRegion } from './surfaces';
-import { buildSubgrid } from '../core/subgrid';
+import { buildTileSurfaces, type BatchedSurfaces, type SurfaceRegion } from './surfaces';
 import { decorationClearsBorder } from '../core/tile-border';
 import { decorationColorVariant } from '../core/object-colors';
 import type { DecorationColorVariant } from '../core/object-colors';
 import type { DecorationKind, GeneratedTile, Point, TileConfig } from '../core/types';
 import { actionTexture } from './icons';
-import { createTileMaterial, updateTileMaterial } from './material';
+import { createTileMaterial, RENDER_STYLE_VERSION, updateTileMaterial } from './material';
 import { fieldSymbolLayout } from './symbols';
-import { buildFieldBorders, FIELD_BORDER_COLOR } from './borders';
+import { buildFieldBorders } from './borders';
 import { buildTileBorder, tileBorderColor } from './tileBorder';
 import { buildSelectionOutline, landscapeSelectionColor, selectionOutlineKey } from './selection';
-import { renderGeometryKey, renderMaterialKey } from './state';
+import { renderGeometryKey, renderMaterialKey, renderSurfaceKey } from './state';
 import { detectPreviewPixelRatio } from './preview';
 import {
   CAMERA_TARGET,
@@ -23,9 +22,11 @@ import {
   restoreCameraState,
   type CameraGroundPoint,
 } from './camera';
-import { exposedWalls } from './walls';
+import { rasterGridSegments, rasterLineGeometry, rasterSubgridSegments } from './grid';
 import { ASSET_LIBRARY, syncModelSlots, voxelGeometry, type VoxelModel } from './voxels';
 import { projectionRay, pickTileSurface, isSelectionClick } from './picking';
+import { setInstancePalettes } from './objectPalettes';
+import { buildPathAccents } from './pathAccents';
 
 export interface RendererCallbacks {
   onCellClick?: (cellId: string, point?: Point) => void;
@@ -37,42 +38,17 @@ const BOTTOM = -0.16;
 const TARGET = CAMERA_TARGET;
 const RAD = Math.PI / 180;
 
-function geometry(positions: number[], colors?: number[], normals = true): THREE.BufferGeometry {
-  const output = new THREE.BufferGeometry();
-  output.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  if (colors) output.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-  if (normals) output.computeVertexNormals();
-  output.computeBoundingSphere();
-  return output;
-}
-
-function lineGeometry(polygons: readonly Point[][], height: number): THREE.BufferGeometry {
-  const positions: number[] = [];
-  polygons.forEach((polygon) =>
-    polygon.forEach((a, i) => {
-      const b = polygon[(i + 1) % polygon.length];
-      if (b) positions.push(a.x, height, a.y, b.x, height, b.y);
-    }),
-  );
-  return geometry(positions, undefined, false);
-}
-
-/** Shared raster edges disappear when outlining a cell made of convex pieces. */
-function fieldOutline(polygons: readonly Point[][], height: number): THREE.BufferGeometry {
-  const positions: number[] = [];
-  exposedWalls([{ polygons: [...polygons], height: 1 }], 0).forEach(({ a, b }) =>
-    positions.push(a.x, height, a.y, b.x, height, b.y),
-  );
-  return geometry(positions, undefined, false);
-}
-
-function releaseGroup(group: THREE.Group, preserved?: ReadonlySet<THREE.Material>): void {
+function releaseGroup(
+  group: THREE.Group,
+  preserved?: ReadonlySet<THREE.Material>,
+  preservedGeometries?: ReadonlySet<THREE.BufferGeometry>,
+): void {
   const geometries = new Set<THREE.BufferGeometry>(),
     materials = new Set<THREE.Material>(),
     textures = new Set<THREE.Texture>();
   group.traverse((object) => {
     if (object instanceof THREE.Mesh || object instanceof THREE.LineSegments) {
-      geometries.add(object.geometry);
+      if (!preservedGeometries?.has(object.geometry)) geometries.add(object.geometry);
       if (object instanceof THREE.InstancedMesh) object.dispose();
       (Array.isArray(object.material) ? object.material : [object.material]).forEach((material) => {
         if (preserved?.has(material)) return;
@@ -103,6 +79,8 @@ export class TileRenderer {
   private pointerButton = -1;
   private readonly observer: ResizeObserver;
   private readonly models = new Map<string, VoxelModel>();
+  private readonly modelGeometries = new Map<string, THREE.BufferGeometry>();
+  private modelGeometryBuilds = 0;
   private readonly slots = new Map<DecorationKind, string>();
   private tile?: GeneratedTile;
   private config?: TileConfig;
@@ -120,6 +98,11 @@ export class TileRenderer {
   private selectedFieldId?: string;
   private selectionColor = '';
   private terrainGeometry?: THREE.BufferGeometry;
+  private cachedSurfaces?: BatchedSurfaces;
+  private cachedBorders?: THREE.BufferGeometry;
+  private surfaceKey?: string;
+  private surfaceRevision = 0;
+  private readonly surfaceGeometries = new Set<THREE.BufferGeometry>();
   private tileBorderTriangles = 0;
   private selectedIds: readonly string[] = [];
   private modelRevision = 0;
@@ -130,7 +113,7 @@ export class TileRenderer {
   private readonly iconMaterials = new Map<string, THREE.MeshBasicMaterial>();
   private readonly lineMaterials = new Map<string, THREE.LineBasicMaterial>();
   private readonly fieldBorderMaterial = new THREE.MeshBasicMaterial({
-    color: FIELD_BORDER_COLOR,
+    vertexColors: true,
     side: THREE.DoubleSide,
     toneMapped: false,
     polygonOffset: true,
@@ -245,7 +228,11 @@ export class TileRenderer {
 
   registerModel(model: VoxelModel, slot?: DecorationKind): void {
     const previous = this.models.get(model.id);
-    if (!previous || JSON.stringify(previous) !== JSON.stringify(model)) this.modelRevision++;
+    if (!previous || JSON.stringify(previous) !== JSON.stringify(model)) {
+      this.modelRevision++;
+      this.modelGeometries.get(model.id)?.dispose();
+      this.modelGeometries.delete(model.id);
+    }
     this.models.set(model.id, model);
     if (slot) this.slots.set(slot, model.id);
   }
@@ -325,8 +312,19 @@ export class TileRenderer {
     }
     this.geometryKey = geometryKey;
     this.geometryRevision++;
-    releaseGroup(this.content, this.preservedMaterials);
-    const surfaces = buildTileSurfaces(tile, config);
+    releaseGroup(this.content, this.preservedMaterials, this.surfaceGeometries);
+    const surfaceKey = renderSurfaceKey(tile, config);
+    if (surfaceKey !== this.surfaceKey) {
+      this.surfaceGeometries.forEach((geometry) => geometry.dispose());
+      this.surfaceGeometries.clear();
+      this.cachedSurfaces = buildTileSurfaces(tile, config);
+      this.cachedBorders = buildFieldBorders(tile, this.cachedSurfaces.geometry).geometry;
+      this.surfaceGeometries.add(this.cachedSurfaces.geometry);
+      this.surfaceGeometries.add(this.cachedBorders);
+      this.surfaceKey = surfaceKey;
+      this.surfaceRevision++;
+    }
+    const surfaces = this.cachedSurfaces!;
     this.terrainGeometry = surfaces.geometry;
     this.cameraGround = surfaces.ground;
     this.pickRegions = surfaces.regions;
@@ -346,49 +344,36 @@ export class TileRenderer {
       if (joined)
         this.content.add(new THREE.LineSegments(joined, this.lineMaterial(key, parameters)));
     };
-    const centerId = tile.fields.find((field) => field.isCenter)?.id;
     if (config.grid.showGrid)
-      addLines(
-        tile.cells
-          .filter((cell) => cell.surfacePolygons.length || (centerId && cell.fieldId === centerId))
-          .map((cell) =>
-            fieldOutline(
-              cell.surfacePolygons.length ? cell.surfacePolygons : [cell.polygon],
-              cell.height + 0.001,
-            ),
-          ),
-        'grid',
-        { color: '#304c42', transparent: true, opacity: 0.11, depthWrite: false },
-      );
+      addLines([rasterLineGeometry(rasterGridSegments(tile, config.grid))], 'grid', {
+        color: '#304c42',
+        transparent: true,
+        opacity: 0.11,
+        depthWrite: false,
+      });
     if (config.grid.showSubgrid)
-      addLines(
-        tile.cells
-          .filter((cell) => !cell.fieldId)
-          .map((cell) =>
-            lineGeometry(
-              buildSubgrid(cell, config.grid).map((part) => part.polygon),
-              cell.height + 0.0015,
-            ),
-          ),
-        'subgrid',
-        { color: '#e4e7c5', transparent: true, opacity: 0.19, depthWrite: false },
-      );
-    const borders = buildFieldBorders(tile, surfaces.geometry, {
-      openOuterEntrances: config.border.enabled && config.border.width > 0,
-    });
-    this.content.add(new THREE.Mesh(borders.geometry, this.fieldBorderMaterial));
+      addLines([rasterLineGeometry(rasterSubgridSegments(tile, config.grid))], 'subgrid', {
+        color: '#e4e7c5',
+        transparent: true,
+        opacity: 0.19,
+        depthWrite: false,
+      });
+    this.content.add(new THREE.Mesh(this.cachedBorders, this.fieldBorderMaterial));
     const tileBorder = buildTileBorder(tile, config.border, surfaces.geometry, surfaces.regions);
     this.tileBorderTriangles = tileBorder.getAttribute('position').count / 3;
     if (this.tileBorderTriangles)
       this.content.add(new THREE.Mesh(tileBorder, this.tileBorderMaterial));
     else tileBorder.dispose();
     const iconParts = new Map<string, THREE.BufferGeometry[]>();
+    const symbolLayouts = new Map<string, ReturnType<typeof fieldSymbolLayout>>();
     tile.fields.forEach((field) => {
       if (field.action === 'none') return;
-      const { size, height: symbolHeight } = fieldSymbolLayout(tile, field);
+      const layout = fieldSymbolLayout(tile, field);
+      symbolLayouts.set(field.id, layout);
+      const { center, size, height: symbolHeight } = layout;
       const part = new THREE.PlaneGeometry(size, size);
       part.rotateX(-Math.PI / 2);
-      part.translate(field.center.x, symbolHeight + 0.0045, field.center.y);
+      part.translate(center.x, symbolHeight + 0.0045, center.y);
       let parts = iconParts.get(field.action);
       if (!parts) {
         parts = [];
@@ -423,7 +408,7 @@ export class TileRenderer {
         string,
         {
           modelId: string;
-          variant: DecorationColorVariant | null;
+          variants: (DecorationColorVariant | null)[];
           items: GeneratedTile['decorations'];
         }
       >();
@@ -439,23 +424,29 @@ export class TileRenderer {
           return;
         const modelId = this.slots.get(decoration.kind) ?? decoration.kind;
         const variant = decorationColorVariant(config, decoration.kind, decoration.id);
-        const key = JSON.stringify([modelId, variant]);
+        const key = modelId;
         let group = groups.get(key);
         if (!group) {
-          group = { modelId, variant, items: [] };
+          group = { modelId, variants: [], items: [] };
           groups.set(key, group);
         }
         group.items.push(decoration);
+        group.variants.push(variant);
       });
       const transform = new THREE.Object3D();
-      groups.forEach(({ modelId, variant, items }) => {
+      groups.forEach(({ modelId, variants, items }) => {
         const model = this.models.get(modelId) ?? this.models.get(items[0]?.kind ?? 'tree');
         if (!model) return;
-        const mesh = new THREE.InstancedMesh(
-          voxelGeometry(model, variant),
-          this.voxelMaterial,
-          items.length,
-        );
+        let template = this.modelGeometries.get(model.id);
+        if (!template) {
+          template = voxelGeometry(model);
+          this.modelGeometries.set(model.id, template);
+          this.modelGeometryBuilds++;
+        }
+        // Instances own their attributes and GPU buffers; templates stay CPU-only.
+        const geometry = template.clone();
+        setInstancePalettes(geometry, variants);
+        const mesh = new THREE.InstancedMesh(geometry, this.voxelMaterial, items.length);
         items.forEach((item, i) => {
           transform.position.set(item.position.x, item.height, item.position.y);
           transform.rotation.set(0, item.rotation * RAD, 0);
@@ -469,15 +460,16 @@ export class TileRenderer {
       });
     }
     if (tile.pathDetails?.length) {
-      const pebble = new THREE.DodecahedronGeometry(1, 0);
+      const accents = buildPathAccents(tile, config, symbolLayouts);
+      const pebble = new THREE.IcosahedronGeometry(1, 0);
       const colors: number[] = [];
       const rgb = new THREE.Color('#a89f8a');
       for (let i = 0; i < pebble.getAttribute('position').count; i++)
         colors.push(rgb.r, rgb.g, rgb.b);
       pebble.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-      const mesh = new THREE.InstancedMesh(pebble, this.voxelMaterial, tile.pathDetails.length),
+      const mesh = new THREE.InstancedMesh(pebble, this.voxelMaterial, accents.length),
         transform = new THREE.Object3D();
-      tile.pathDetails.forEach((item, i) => {
+      accents.forEach((item, i) => {
         transform.position.set(item.position.x, item.height + item.scale * 0.3, item.position.y);
         transform.rotation.set(0, item.rotation * RAD, 0);
         transform.scale.set(item.scale * 0.5, item.scale * 0.3, item.scale * 0.38);
@@ -584,6 +576,9 @@ export class TileRenderer {
       this.canvas.dataset.tileBorderTriangles = String(diagnostics.tileBorderTriangles);
       this.canvas.dataset.tileBorderColor = diagnostics.tileBorderColor;
       this.canvas.dataset.tileBorderMode = diagnostics.tileBorderMode;
+      this.canvas.dataset.modelGeometryBuilds = String(diagnostics.modelGeometryBuilds);
+      this.canvas.dataset.surfaceRevision = String(diagnostics.surfaceRevision);
+      this.canvas.dataset.renderStyleVersion = String(RENDER_STYLE_VERSION);
     }
   }
 
@@ -633,6 +628,8 @@ export class TileRenderer {
     tileBorderTriangles: number;
     tileBorderColor: string;
     tileBorderMode: string;
+    modelGeometryBuilds: number;
+    surfaceRevision: number;
   } {
     return {
       drawCalls: this.renderer.info.render.calls,
@@ -649,6 +646,8 @@ export class TileRenderer {
         ? `#${this.tileBorderMaterial.color.getHexString()}`
         : '',
       tileBorderMode: this.tileBorderTriangles ? (this.config?.border.mode ?? '') : '',
+      modelGeometryBuilds: this.modelGeometryBuilds,
+      surfaceRevision: this.surfaceRevision,
     };
   }
 
@@ -724,7 +723,9 @@ export class TileRenderer {
     this.canvas.removeEventListener('pointerup', this.pointerUp);
     this.canvas.removeEventListener('contextmenu', this.contextMenu);
     this.canvas.removeEventListener('webglcontextlost', this.contextLost);
-    releaseGroup(this.content, this.preservedMaterials);
+    releaseGroup(this.content, this.preservedMaterials, this.surfaceGeometries);
+    this.surfaceGeometries.forEach((geometry) => geometry.dispose());
+    this.surfaceGeometries.clear();
     releaseGroup(this.selection, this.preservedMaterials);
     releaseGroup(this.ground);
     this.iconMaterials.forEach((material) => material.map?.dispose());
@@ -732,6 +733,8 @@ export class TileRenderer {
     this.preservedMaterials.clear();
     this.iconMaterials.clear();
     this.lineMaterials.clear();
+    this.modelGeometries.forEach((geometry) => geometry.dispose());
+    this.modelGeometries.clear();
     this.models.clear();
     this.renderer.dispose();
     this.renderer.forceContextLoss();

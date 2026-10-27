@@ -174,58 +174,72 @@ export const bulkProjectSchema = z
     shuffleRevision: z.number().int().min(0).max(2147483647),
   })
   .strict()
-  .refine((project) => {
-    if (
-      project.tiles.length !== project.rows * project.columns ||
-      project.order.length !== project.tiles.length ||
-      new Set(project.tiles.map((tile) => tile.id)).size !== project.tiles.length ||
-      new Set(project.order).size !== project.order.length ||
-      !project.order.every((id) => project.tiles.some((tile) => tile.id === id))
+  .refine(
+    (project) => consistentBulkSettings(project, boardOrigin),
+    'Bulk-Serie muss vollständig, geordnet und mit ihren gemeinsamen Einstellungen konsistent sein.',
+  );
+
+function consistentBulkSettings(
+  project: Omit<BulkProject, 'version'>,
+  originAt: typeof boardOrigin,
+) {
+  if (
+    project.tiles.length !== project.rows * project.columns ||
+    project.order.length !== project.tiles.length ||
+    new Set(project.tiles.map((tile) => tile.id)).size !== project.tiles.length ||
+    new Set(project.order).size !== project.order.length ||
+    !project.order.every((id) => project.tiles.some((tile) => tile.id === id))
+  )
+    return false;
+  if (
+    project.uniformGrid &&
+    project.tiles.some(
+      (tile) => JSON.stringify(tile.config.grid) !== JSON.stringify(project.gridTemplate),
     )
-      return false;
-    if (
-      project.uniformGrid &&
-      project.tiles.some(
-        (tile) => JSON.stringify(tile.config.grid) !== JSON.stringify(project.gridTemplate),
-      )
+  )
+    return false;
+  if (
+    project.uniformBorder &&
+    project.tiles.some(
+      (tile) => JSON.stringify(tile.config.border) !== JSON.stringify(project.borderTemplate),
     )
-      return false;
-    if (
-      project.uniformBorder &&
-      project.tiles.some(
-        (tile) => JSON.stringify(tile.config.border) !== JSON.stringify(project.borderTemplate),
-      )
-    )
-      return false;
-    if (
-      project.biomeMode === 'fixed' &&
-      project.tiles.some((tile) => tile.biomeId !== project.biomeId)
-    )
-      return false;
-    if (!project.continuousNoise) return true;
-    const first = project.tiles[0]?.config.terrain;
-    if (!first) return false;
-    const firstProfile = sharedTerrainProfile(first);
-    const firstNoise = first.noise;
-    return project.order.every((id, index) => {
-      const config = project.tiles.find((tile) => tile.id === id)?.config;
-      if (!config) return false;
-      const noise = config.terrain.noise;
-      const profile = sharedTerrainProfile(config.terrain);
-      const expectedOrigin = boardOrigin(index, project.columns);
-      return (
-        noise.seed === firstNoise.seed &&
-        noise.origin.x === expectedOrigin.x &&
-        noise.origin.y === expectedOrigin.y &&
-        JSON.stringify(profile) === JSON.stringify(firstProfile)
-      );
-    });
-  }, 'Bulk-Serie muss vollständig, geordnet und mit ihren gemeinsamen Einstellungen konsistent sein.');
+  )
+    return false;
+  if (
+    project.biomeMode === 'fixed' &&
+    project.tiles.some((tile) => tile.biomeId !== project.biomeId)
+  )
+    return false;
+  if (!project.continuousNoise) return true;
+  const first = project.tiles[0]?.config.terrain;
+  if (!first) return false;
+  const firstProfile = sharedTerrainProfile(first);
+  const firstNoise = first.noise;
+  return project.order.every((id, index) => {
+    const config = project.tiles.find((tile) => tile.id === id)?.config;
+    if (!config) return false;
+    const noise = config.terrain.noise;
+    const profile = sharedTerrainProfile(config.terrain);
+    const expectedOrigin = originAt(index, project.columns);
+    return (
+      noise.seed === firstNoise.seed &&
+      noise.origin.x === expectedOrigin.x &&
+      noise.origin.y === expectedOrigin.y &&
+      JSON.stringify(profile) === JSON.stringify(firstProfile)
+    );
+  });
+}
+
+// The collection envelope is unchanged when an individual tile schema advances.
+const bulkProjectInputSchema = z.strictObject({
+  ...bulkProjectV2Schema.shape,
+  version: z.literal(3),
+});
 
 export function migrateBulkProject(input: unknown): BulkProject {
   if (typeof input === 'object' && input !== null && 'version' in input && input.version === 1) {
     const legacy = bulkProjectV1Schema.parse(input);
-    return bulkProjectSchema.parse({
+    return migrateBulkProject({
       ...legacy,
       version: 3,
       biomeMode: 'random',
@@ -233,26 +247,29 @@ export function migrateBulkProject(input: unknown): BulkProject {
       tiles: legacy.tiles.map(({ id, config }) => ({
         id,
         biomeId: null,
-        config: migrateConfig(config).config,
+        config,
       })),
     });
   }
   if (typeof input === 'object' && input !== null && 'version' in input && input.version === 2) {
     const legacy = bulkProjectV2Schema.parse(input);
-    return bulkProjectSchema.parse({
+    return migrateBulkProject({
       ...legacy,
       version: 3,
-      tiles: legacy.tiles.map(({ id, biomeId, config }) => ({
-        id,
-        biomeId,
-        config: migrateConfig(config).config,
-      })),
     });
   }
-  return bulkProjectSchema.parse(input);
+  const project = bulkProjectInputSchema.parse(input);
+  const tiles = project.tiles.map((tile) => ({
+    ...tile,
+    config: migrateConfig(tile.config).config,
+  }));
+  return bulkProjectSchema.parse({
+    ...project,
+    tiles,
+  });
 }
 
-function boardOrigin(index: number, columns: number) {
+export function boardOrigin(index: number, columns: number) {
   const row = Math.floor(index / columns);
   const column = index % columns;
   return { x: column * 1.5, y: Math.sqrt(3) * (row + column / 2) };
@@ -264,6 +281,25 @@ function sharedTerrainProfile(terrain: TileConfig['terrain']) {
   void gradient;
   void wallGradient;
   return profile;
+}
+
+/** Cell IDs belong to a specific raster; match the single-tile editor's rebuild policy. */
+function applySharedGrid(config: TileConfig, grid: TileConfig['grid']): TileConfig {
+  const rebuild = config.grid.kind !== grid.kind || config.grid.divisions !== grid.divisions;
+  return configSchema.parse({
+    ...config,
+    grid,
+    ...(rebuild
+      ? {
+          paths: { ...config.paths, auto: true, fields: [] },
+          decoration: {
+            ...config.decoration,
+            density: config.decoration.sourceDensity ?? config.decoration.density,
+            placements: [],
+          },
+        }
+      : {}),
+  });
 }
 
 /** Generate a reproducible collection of independently editable tile recipes. */
@@ -441,8 +477,7 @@ export function syncBulkTile(input: BulkProject, id: string, edited: TileConfig)
               : {}),
           })
         : configSchema.parse({
-            ...tile.config,
-            ...(project.uniformGrid ? { grid: gridTemplate } : {}),
+            ...applySharedGrid(tile.config, project.uniformGrid ? gridTemplate : tile.config.grid),
             ...(project.uniformBorder ? { border: borderTemplate } : {}),
             ...(terrainProfile
               ? {
@@ -481,7 +516,7 @@ export function setBulkUniformity(
       gridTemplate,
       tiles: project.tiles.map((tile) => ({
         ...tile,
-        config: enabled ? configSchema.parse({ ...tile.config, grid: gridTemplate }) : tile.config,
+        config: enabled ? applySharedGrid(tile.config, gridTemplate) : tile.config,
       })),
     });
   }

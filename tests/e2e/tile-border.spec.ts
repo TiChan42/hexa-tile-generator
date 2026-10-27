@@ -48,7 +48,7 @@ async function pixels(page: Page, bytes: Buffer, points: Point[], size = 512) {
   );
 }
 
-test('outer border settings render precise colors in PNG and leave every path mouth open', async ({
+test('outer border settings retain a thin field contour and exclude the thick rim from path mouths', async ({
   page,
 }) => {
   const config = structuredClone(defaultConfig);
@@ -82,7 +82,8 @@ test('outer border settings render precise colors in PNG and leave every path mo
           !cell.fieldId && cell.surfacePolygons.some((polygon) => pointInPolygon(point, polygon)),
       ),
   )!;
-  const mouths = tile.entrances.map((entrance) => inward(entrance.side, 0.5, 0.006));
+  const mouths = tile.entrances.map((entrance) => inward(entrance.side, 0.5, 0.014));
+  const contours = tile.entrances.map((entrance) => inward(entrance.side, 0.5, 0.0035));
   await page.goto('/');
   await importProject(page, config);
   const before = await png(page);
@@ -103,6 +104,11 @@ test('outer border settings render precise colors in PNG and leave every path mo
   for (const opening of openings) {
     expect(opening[3]).toBe(255);
     expect(opening[0] + opening[1] + opening[2]).toBeGreaterThan(160);
+  }
+  const contourPixels = await pixels(page, black, contours);
+  for (const contour of contourPixels) {
+    expect(contour[3]).toBe(255);
+    contour.slice(0, 3).forEach((value) => expect(value).toBeLessThan(12));
   }
   await page.getByLabel('Randfarbe', { exact: true }).selectOption('custom');
   await page.getByLabel('Außenrand Hexwert').fill('#ff3344');

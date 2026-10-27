@@ -96,7 +96,9 @@ describe('catalogued code-native voxel assets', () => {
       const saved = JSON.parse(
         await readFile(new URL(`../public/models/${model.id}.json`, import.meta.url), 'utf8'),
       ) as unknown;
-      expect(saved).toEqual(model);
+      const { paletteRoles, ...editableModel } = model;
+      expect(saved).toEqual(editableModel);
+      if (paletteRoles) expect(paletteRoles).toHaveLength(model.palette.length);
     },
   );
   it.each(createNewAssets())(
@@ -125,7 +127,9 @@ describe('catalogued code-native voxel assets', () => {
   it('retains all seven unaffected legacy models voxel for voxel and palette for palette', () => {
     for (const [id, digest] of Object.entries(legacyHashes)) {
       const model = ASSET_LIBRARY.find((model) => model.id === id)!;
-      expect(createHash('sha256').update(JSON.stringify(model)).digest('hex')).toBe(digest);
+      const { paletteRoles, ...editableModel } = model;
+      void paletteRoles;
+      expect(createHash('sha256').update(JSON.stringify(editableModel)).digest('hex')).toBe(digest);
     }
   });
 });

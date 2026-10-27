@@ -9,6 +9,8 @@ import {
 } from './fields';
 import type { FieldCluster } from './fields';
 import { buildPathNetwork, selectBranchAnchors } from './path-network';
+import { organicTopologyAttempt } from './organic-topology';
+import { organicTopologyAttempt as v14TopologyAttempt } from './legacy-organic-topology';
 import { randomAt } from './random';
 import type { Entrance, Point, TileCell, TileConfig } from './types';
 
@@ -928,6 +930,37 @@ export function buildAutoTopology(
   centerPolygon: Point[],
   manual: FieldCluster[],
 ): { clusters: FieldCluster[]; warnings: string[] } {
+  if (!config.legacyLayout && manual.length === 0) {
+    const counts = Array.from({ length: 17 }, (_, index) => index + 8).sort(
+      (a, b) =>
+        Math.abs(a - config.paths.fieldCount) - Math.abs(b - config.paths.fieldCount) || a - b,
+    );
+    for (const fieldCount of counts) {
+      const candidate = { ...config, paths: { ...config.paths, fieldCount } };
+      for (
+        let attempt = 0;
+        attempt < (fieldCount === config.paths.fieldCount ? (fieldCount >= 20 ? 20 : 8) : 2);
+        attempt++
+      ) {
+        const clusters = (
+          config.layoutVersion === 14 ? v14TopologyAttempt : organicTopologyAttempt
+        )(candidate, cells, entrances, centerPolygon, attempt);
+        if (!clusters || !validLayout(clusters, cells, entrances, centerPolygon)) continue;
+        return {
+          clusters,
+          warnings:
+            fieldCount === config.paths.fieldCount
+              ? []
+              : [
+                  `Die gewünschte Gesamtzahl ${config.paths.fieldCount} ist bei diesem Raster und dieser Pentagonposition nicht als zusammenhängende flächige Felder möglich; erzeugt wurden ${fieldCount} Felder. ${config.paths.fieldCount === 7 ? 'Neben sechs festen Eingangsflächen und dem Pentagon wird mindestens ein inneres Verbindungsfeld benötigt; wähle mindestens acht Gesamtfelder.' : 'Wähle ein feineres Raster, eine andere Feldzahl oder eine andere Pentagonposition.'}`,
+                ],
+        };
+      }
+    }
+    throw new Error(
+      'Mit diesem Raster und dieser Pentagonposition ist keine gültige organische Feldanordnung möglich.',
+    );
+  }
   const first = topologyAttempt(config, cells, entrances, centerPolygon, manual);
   if (validLayout(first.clusters, cells, entrances, centerPolygon)) {
     trimFieldTendrils(first.clusters, cells, entrances, centerPolygon);

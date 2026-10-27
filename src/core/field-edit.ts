@@ -1,3 +1,4 @@
+import { preserveChangedFieldColors } from './preserve-colors';
 import { boundaryCells, isConnectedSelection } from './geometry';
 import { centralSideCells } from './center-sides';
 import { evaluateFieldShapeRules } from './rules';
@@ -240,5 +241,5 @@ export function prepareFieldShapeEdit(
   draft.decoration.placements = draft.decoration.placements.filter(
     (placement) => !claimed.has(placement.cellId),
   );
-  return draft;
+  return preserveChangedFieldColors(draft, tile);
 }

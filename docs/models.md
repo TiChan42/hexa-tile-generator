@@ -9,6 +9,8 @@ Die Bibliothek verwendet denselben zentralen Katalog wie Generator und Editor un
 
 Die sieben bisherigen Modelle neben dem Amethyst bleiben unverändert. Die neuen Modelle entstehen aus codebasierten Formprimitiven in `src/render/assets/`; ihre editierbaren Voxel-JSONs in `public/models/` stimmen exakt mit diesen Quellen überein. Dünne Stiele, Wedel und Äste verwenden flächenverbundene Stufenzüge. Neue Objektgruppen bleiben über Wurzeln, Bodenstücke oder eine gemeinsame Felsbasis zusammenhängend.
 
+Farbrollen für Laub und Pilzkappen sind zusätzliche Laufzeitmetadaten der eingebauten Bibliothek. Sie gehören nicht zum editierbaren Voxel-JSON oder zum Inhalts-Hash eigener Modelle. Deshalb bleiben Voxelkoordinaten, Grundpaletten und bestehende Modell-IDs erhalten; Baumstämme und Pilzstiele werden von den Farbprofilen nicht verändert.
+
 Der Amethyst besteht aus fünf unterschiedlich hohen, leicht geneigten Prismen auf einer dunklen Felsbasis. Seine Seiten besitzen zusammenhängende violette Facetten; helle Akzente konzentrieren sich auf einzelne Lichtkanten und Spitzen. Der Bergkristall verwendet eine eigene Anordnung und eine kühle, helle Palette. Die Farbfelder wechseln nicht wie ein Schachbrett zwischen benachbarten Voxeln. Unter der hellen Three.js-Beleuchtung erhalten dunkle und mittlere Amethysttöne die Farbsättigung.
 
 Sichtbare Voxeloberflächen werden weiterhin durch Entfernen innerer Würfelflächen aufgebaut. Gleiche Modelle verwenden in der Kachel gemeinsame Geometrie und Instanzen; neue Arten erzeugen keine zusätzlichen Renderer oder WebGL-Kontexte. Die kleinen Bibliotheksvorschauen verwenden dieselben Voxelkoordinaten und Paletten.

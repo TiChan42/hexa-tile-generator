@@ -174,7 +174,7 @@ describe('minimum figure area and whole pentagon-side ownership', () => {
     let edit: { id: string; cellIds: string[]; action: 'event' } | undefined;
     for (const side of sides) {
       const owner = tile.fields.find((field) => field.cellIds.some((id) => side.has(id)))!;
-      if (side.size < 2) continue;
+      if (!owner || side.size < 2) continue;
       for (const removed of side) {
         const ids = owner.cellIds.filter((id) => id !== removed);
         const area = ids.reduce(

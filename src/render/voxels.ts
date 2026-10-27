@@ -3,6 +3,7 @@ import type { DecorationKind } from '../core/types';
 import type { DecorationColorVariant } from '../core/object-colors';
 import { DECORATION_KINDS } from '../core/objects';
 import { createNewAssets } from './assets';
+import { objectPaletteSlots } from './objectPalettes';
 
 export interface VoxelModel {
   id: string;
@@ -211,10 +212,13 @@ export function voxelGeometry(
 ): THREE.BufferGeometry {
   const model = normalizeVoxelModel(input);
   const palette = voxelPalette(model, variant);
+  const slots = objectPaletteSlots(model.paletteRoles);
   const occupied = new Set(model.voxels.map(([x, y, z]) => `${x},${y},${z}`));
   const positions: number[] = [],
     normals: number[] = [],
-    colors: number[] = [];
+    colors: number[] = [],
+    paletteSlots: number[] = [],
+    indices: number[] = [];
   const faces = [
     {
       n: [1, 0, 0],
@@ -276,7 +280,8 @@ export function voxelGeometry(
     faces.forEach((face) => {
       const [nx = 0, ny = 0, nz = 0] = face.n;
       if (occupied.has(`${x + nx},${y + ny},${z + nz}`)) return;
-      [0, 1, 2, 0, 2, 3].forEach((i) => {
+      const start = positions.length / 3;
+      [0, 1, 2, 3].forEach((i) => {
         const corner = face.corners[i];
         if (!corner) return;
         positions.push(
@@ -286,13 +291,22 @@ export function voxelGeometry(
         );
         normals.push(nx, ny, nz);
         colors.push(color.r, color.g, color.b);
+        paletteSlots.push(slots[index] ?? 0);
       });
+      indices.push(start, start + 1, start + 2, start, start + 2, start + 3);
     });
   });
   const geometry = new THREE.BufferGeometry();
+  geometry.userData.objectPaletteFamily = model.paletteRoles?.includes('foliage')
+    ? 'foliage'
+    : model.paletteRoles?.includes('mushroom-cap-main')
+      ? 'mushroomCap'
+      : null;
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
   geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  geometry.setAttribute('objectPaletteSlot', new THREE.Float32BufferAttribute(paletteSlots, 1));
+  geometry.setIndex(indices);
   geometry.computeBoundingSphere();
   return geometry;
 }

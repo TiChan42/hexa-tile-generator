@@ -79,8 +79,10 @@ describe('occupied voxel normalization', () => {
         [1, 0, 0, 0],
       ]),
     );
-    expect(one.getAttribute('position').count).toBe(6 * 6);
-    expect(two.getAttribute('position').count).toBe(10 * 6);
+    expect(one.getIndex()!.count).toBe(6 * 6);
+    expect(two.getIndex()!.count).toBe(10 * 6);
+    expect(one.getAttribute('position').count).toBe(6 * 4);
+    expect(two.getAttribute('position').count).toBe(10 * 4);
     expect(two.getAttribute('normal').count).toBe(two.getAttribute('position').count);
     one.dispose();
     two.dispose();

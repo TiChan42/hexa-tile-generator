@@ -1,3 +1,4 @@
+import { preserveChangedFieldColors } from './preserve-colors';
 import { createCenterPolygon } from './center';
 import { centralSideCells } from './center-sides';
 import { generateTile } from './generate';
@@ -90,7 +91,10 @@ export function prepareCenterEdit(
       });
   const oldBuckets = rasterBuckets(sourceTile.cells);
   const polygon = createCenterPolygon(config.seed, nextCenter),
-    cells = buildGrid(config.grid, polygon, { portalWidth: nextCenter.portalWidth });
+    cells = buildGrid(config.grid, polygon, {
+      portalWidth: nextCenter.portalWidth,
+      legacy: config.legacyLayout,
+    });
 
   const normalFields = sourceTile.fields.filter((field) => !field.isCenter),
     oldOwners = new Map(
@@ -152,5 +156,5 @@ export function prepareCenterEdit(
     ? [structuredClone(centerEdit), ...structuredClone(snapshot)]
     : structuredClone(snapshot);
   draft.paths.auto = false;
-  return draft;
+  return preserveChangedFieldColors(draft, sourceTile);
 }

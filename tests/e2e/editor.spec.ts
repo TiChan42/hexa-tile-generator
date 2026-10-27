@@ -1,5 +1,7 @@
+import { preV11Materials } from '../fixtures/migration';
 import { test, expect } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import {
   configSchema,
   defaultConfig,
@@ -8,7 +10,7 @@ import {
   createSeededProject,
   DECORATION_CATALOG,
 } from '../../src/core';
-import { clickWorld, importProject, project } from './helpers';
+import { clickWorld, editableExtension, importProject, project } from './helpers';
 import legacyV1 from '../fixtures/v1.json' with { type: 'json' };
 import { buildTileSurfaces } from '../../src/render/surfaces';
 test.setTimeout(60000);
@@ -164,7 +166,7 @@ test('PNG is stable, correctly sized, transparent and saved with config to worki
   test.setTimeout(60000);
   await page.goto('/');
   const config = structuredClone(defaultConfig);
-  config.name = 'browser-abnahme';
+  config.name = `browser-abnahme-${randomUUID()}`;
   config.seed = 'browser-export';
   config.export.size = 512;
   config.camera.mode = 'top';
@@ -205,15 +207,24 @@ test('PNG is stable, correctly sized, transparent and saved with config to worki
     id: string;
     name: string;
     pngUrl: string;
+    generatorVersion: string;
   }[];
-  const saved = list.find((item) => item.name === config.name)!;
+  const saved = list.find(
+    (item) => item.name === config.name && item.generatorVersion === config.generatorVersion,
+  )!;
   expect(saved).toBeTruthy();
   const returned = configSchema.parse(await (await request.get(`/api/tiles/${saved.id}`)).json());
   expect(returned).toEqual(config);
-  expect((await request.get(saved.pngUrl)).ok()).toBe(true);
+  const savedPng = await request.get(saved.pngUrl);
+  expect(savedPng.ok()).toBe(true);
+  expect((await savedPng.body()).equals(first)).toBe(true);
   await page.getByRole('button', { name: 'Meine Tiles', exact: true }).click();
   await expect(page.getByRole('dialog')).toBeVisible();
-  await page.getByRole('button', { name: new RegExp('browser-abnahme browser-export') }).click();
+  await page
+    .getByRole('dialog')
+    .locator('button')
+    .filter({ has: page.locator(`img[src="${saved.pngUrl}"]`) })
+    .click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
 });
 
@@ -334,27 +345,7 @@ test('full seed generation is repeatable, editable in field shape and material l
   });
   await expect.poll(async () => await project(page)).toEqual(expected);
   const generated = generateTile(expected);
-  const field = generated.fields.find(
-    (field) =>
-      !field.isCenter &&
-      !generated.entrances.some((entrance) => entrance.fieldId === field.id) &&
-      generated.cells.some(
-        (cell) =>
-          !cell.fieldId &&
-          !cell.reserved &&
-          !cell.landscapeOnly &&
-          cell.entranceSide === undefined &&
-          cell.neighbors.some((id) => field.cellIds.includes(id)),
-      ),
-  )!;
-  const free = generated.cells.find(
-    (cell) =>
-      !cell.fieldId &&
-      !cell.reserved &&
-      !cell.landscapeOnly &&
-      cell.entranceSide === undefined &&
-      cell.neighbors.some((id) => field.cellIds.includes(id)),
-  )!;
+  const { field, cell: free } = editableExtension(expected, generated);
   await page.getByRole('button', { name: /Feldaktionen Dem Spiel/ }).click();
   await page.getByLabel('Spielfeld auswählen').selectOption(field.id);
   await page.getByLabel('Feldbeschriftung').fill('Mein Seed-Feld');
@@ -405,9 +396,9 @@ test('legacy browser projects migrate with an explicit notice and keep their pre
     legacy,
   );
   await page.goto('/');
-  await expect(page.getByRole('status')).toContainText('Projekt auf Generator 10.1 umgestellt');
+  await expect(page.getByRole('status')).toContainText('Projekt auf Generator 15 umgestellt');
   const migrated = await project(page);
-  expect(migrated.schemaVersion).toBe(10);
+  expect(migrated.schemaVersion).toBe(15);
   expect(migrated.center.shape).toBe('regular');
   expect(migrated.export).toEqual(defaultConfig.export);
   await expect(page.locator('canvas')).toBeVisible();
@@ -465,7 +456,10 @@ for (const version of [4, 5, 6, 7, 8, 9] as const) {
     page,
   }) => {
     const expected = structuredClone(defaultConfig);
+    expected.legacyLayout = true;
     expected.name = `V${version} bearbeitet`;
+    expected.decoration.colorProfiles.trees.enabled = false;
+    expected.decoration.colorProfiles.mushrooms.enabled = false;
     expected.export.size = 256;
     expected.decoration.species =
       version >= 5
@@ -502,11 +496,13 @@ for (const version of [4, 5, 6, 7, 8, 9] as const) {
         rotation: 37,
       },
     ];
-    const { rules, border, editing, actions, ...historical } = expected;
+    const { legacyLayout, rules, border, editing, actions, ...historical } = expected;
+    void legacyLayout;
     void editing;
     void actions;
     const legacy = {
       ...historical,
+      ...preV11Materials(expected),
       ...(version >= 8 ? { rules } : {}),
       ...(version >= 9 ? { border } : {}),
       schemaVersion: version,
@@ -519,7 +515,7 @@ for (const version of [4, 5, 6, 7, 8, 9] as const) {
       value: legacy,
     });
     await page.goto('/');
-    await expect(page.getByRole('status')).toContainText('Projekt auf Generator 10.1 umgestellt');
+    await expect(page.getByRole('status')).toContainText('Projekt auf Generator 15 umgestellt');
     expect(await project(page)).toEqual(expected);
     expect(await page.evaluate((key) => JSON.parse(localStorage.getItem(key)!), key)).toEqual(
       legacy,
@@ -561,7 +557,6 @@ test('the expanded object library previews, filters and places both crystal mode
       !cell.fieldId &&
       !cell.reserved &&
       cell.polygon.length === 6 &&
-      Math.hypot(cell.center.x, cell.center.y) < 0.6 &&
       decorationSlots(cell, config.grid).length >= 3,
   )!;
   // Pick interior slots: a point exactly on a cell corner can belong to its neighboring field.

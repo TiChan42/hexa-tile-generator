@@ -252,12 +252,10 @@ function Series3D({ tiles, columns, selectedId, onSelect }: Props) {
       materials.add(terrain);
       group.add(new THREE.Mesh(surfaces.geometry, terrain));
 
-      const borders = buildFieldBorders(entry.tile, surfaces.geometry, {
-        openOuterEntrances: entry.config.border.enabled && entry.config.border.width > 0,
-      });
+      const borders = buildFieldBorders(entry.tile, surfaces.geometry);
       geometries.add(borders.geometry);
       const fieldInk = new THREE.MeshBasicMaterial({
-        color: FIELD_BORDER_COLOR,
+        vertexColors: true,
         side: THREE.DoubleSide,
         toneMapped: false,
       });
@@ -303,8 +301,8 @@ function Series3D({ tiles, columns, selectedId, onSelect }: Props) {
 
       for (const field of entry.tile.fields) {
         if (field.action === 'none') continue;
-        const { size, height } = fieldSymbolLayout(entry.tile, field);
-        transform.position.set(entry.x + field.center.x, height + 0.0045, entry.z + field.center.y);
+        const { center, size, height } = fieldSymbolLayout(entry.tile, field);
+        transform.position.set(entry.x + center.x, height + 0.0045, entry.z + center.y);
         transform.rotation.set(0, 0, 0);
         transform.scale.set(size, size, size);
         transform.updateMatrix();

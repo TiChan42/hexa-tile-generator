@@ -1,6 +1,27 @@
 import type { GeneratedTile, TileConfig } from '../core/types';
 
-/** Geometry excludes editor metadata, camera, seed and material-only controls. */
+/** Only actual surface inputs invalidate the costly terrain and contour meshes. */
+export function renderSurfaceKey(tile: GeneratedTile, config: TileConfig): string {
+  return JSON.stringify([
+    tile.cells.map((cell) => [
+      cell.id,
+      cell.polygon,
+      cell.surfacePolygons,
+      cell.height,
+      cell.color,
+      cell.fieldId,
+    ]),
+    tile.fields.map((field) => [field.id, field.cellIds, field.color, field.area, field.isCenter]),
+    tile.center.polygon,
+    tile.center.height,
+    config.terrain.elevation,
+    config.terrain.wallGradient,
+    config.terrain.overhang,
+    config.terrain.skirtDepth,
+  ]);
+}
+
+/** Geometry excludes editor metadata, camera and material-only controls. */
 export function renderGeometryKey(
   tile: GeneratedTile,
   config: TileConfig,
@@ -26,12 +47,15 @@ export function renderGeometryKey(
       field.maxHeight,
       field.symbolHeight,
       field.color,
+      field.area,
       field.action,
       field.isCenter,
     ]),
     tile.center,
     tile.decorations,
     tile.pathDetails,
+    tile.connections,
+    [config.seed, config.paths.enabled, config.paths.detail.pebbleDensity],
     [
       config.grid.kind,
       config.grid.divisions,

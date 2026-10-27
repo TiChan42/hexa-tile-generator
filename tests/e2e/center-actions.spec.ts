@@ -46,7 +46,14 @@ for (const kind of ['hex', 'diamond'] as const) {
         heightOffset: 0.045,
         heightMode: 'terraced',
       },
-      { id: 'center', cellIds: [], action: 'gold', label: 'Mein Zentrum', heightOffset: 0.02 },
+      {
+        id: 'center',
+        cellIds: [],
+        action: 'gold',
+        label: 'Mein Zentrum',
+        color: '#e6c777',
+        heightOffset: 0.02,
+      },
     ];
     const free = initial.cells.find(
       (cell) => !cell.fieldId && !cell.reserved && Math.hypot(cell.center.x, cell.center.y) > 0.55,

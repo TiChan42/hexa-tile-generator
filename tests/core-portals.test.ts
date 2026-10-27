@@ -129,43 +129,67 @@ describe('centered pentagon portals with visible landscape corners', () => {
   });
 });
 
-describe('untouched fixed entrance footprints', () => {
-  it.each(['hex', 'diamond'] as const)(
-    'preserves whole $s entry polygons across seeds and center poses',
-    (kind) => {
+describe('untouched fixed entrance mouths and historical footprints', () => {
+  it.each([
+    ['hex', 'entry-a', 0, 0],
+    ['hex', 'entry-b', 0.12, 21],
+    ['hex', 'entry-c', -0.12, -23],
+    ['diamond', 'entry-a', 0, 0],
+    ['diamond', 'entry-b', 0.12, 21],
+    ['diamond', 'entry-c', -0.12, -23],
+  ] as const)(
+    'preserves complete %s entry mouths across seeds and center poses (%s)',
+    (kind, seed, x, rotation) => {
       const config = structuredClone(defaultConfig);
       config.grid.kind = kind;
       config.decoration.enabled = false;
       const expected = buildEntranceFootprints(config.grid),
         raw = new Map(buildUntouchedGrid(config.grid).map((cell) => [cell.id, cell]));
-      for (const [seed, x, rotation] of [
-        ['entry-a', 0, 0],
-        ['entry-b', 0.12, 21],
-        ['entry-c', -0.12, -23],
-      ] as const) {
-        config.seed = seed;
-        config.center.offset = { x, y: -x / 2 };
-        config.center.rotation = rotation;
-        const tile = generateTile(config),
-          map = new Map(tile.cells.map((cell) => [cell.id, cell]));
-        for (const entrance of tile.entrances) {
-          const fixed = expected[entrance.side]!,
-            field = tile.fields.find((field) => field.id === entrance.fieldId)!;
-          expect(entrance.cellIds).toEqual(fixed.mouthIds);
-          expect(entrance.footprintCellIds).toEqual(fixed.cellIds);
-          expect([...field.cellIds].sort()).toEqual([...fixed.cellIds].sort());
-          for (const id of field.cellIds) {
-            expect(map.get(id)!.polygon).toEqual(raw.get(id)!.polygon);
-            expect(map.get(id)!.rasterId).toBeUndefined();
-            expect(map.get(id)!.entranceSide).toBe(entrance.side);
-          }
-          expect(
-            new Set(
-              boundaryCells(tile.cells, entrance.side)
-                .map((cell) => cell.fieldId)
-                .filter(Boolean),
-            ),
-          ).toEqual(new Set([field.id]));
+
+      config.seed = seed;
+      config.center.offset = { x, y: -x / 2 };
+      config.center.rotation = rotation;
+      const tile = generateTile(config),
+        map = new Map(tile.cells.map((cell) => [cell.id, cell]));
+      for (const entrance of tile.entrances) {
+        const fixed = expected[entrance.side]!,
+          field = tile.fields.find((field) => field.id === entrance.fieldId)!;
+        expect(entrance.cellIds).toEqual(fixed.mouthIds);
+        expect(entrance.footprintCellIds).toEqual(fixed.cellIds);
+        expect(fixed.mouthIds.every((id) => field.cellIds.includes(id))).toBe(true);
+        expect(field.area + 1e-10).toBeGreaterThanOrEqual(MIN_FIELD_AREA);
+        expect(isConnectedSelection(field.cellIds, tile.cells)).toBe(true);
+        for (const id of fixed.mouthIds) {
+          expect(map.get(id)!.polygon).toEqual(raw.get(id)!.polygon);
+          expect(map.get(id)!.rasterId).toBeUndefined();
+          expect(map.get(id)!.entranceSide).toBe(entrance.side);
+        }
+        expect(
+          new Set(
+            boundaryCells(tile.cells, entrance.side)
+              .map((cell) => cell.fieldId)
+              .filter(Boolean),
+          ),
+        ).toEqual(new Set([field.id]));
+        expect(
+          boundaryCells(tile.cells, entrance.side)
+            .filter((cell) => cell.fieldId)
+            .map((cell) => cell.id)
+            .sort(),
+        ).toEqual([...fixed.mouthIds].sort());
+      }
+      // V14 compatibility retains its entire seed-independent entry footprint.
+      config.layoutVersion = 14;
+      const historical = generateTile(config);
+      const historicalCells = new Map(historical.cells.map((cell) => [cell.id, cell]));
+      for (const entrance of historical.entrances) {
+        const fixed = expected[entrance.side]!;
+        const field = historical.fields.find((field) => field.id === entrance.fieldId)!;
+        expect([...field.cellIds].sort()).toEqual([...fixed.cellIds].sort());
+        for (const id of field.cellIds) {
+          expect(historicalCells.get(id)!.polygon).toEqual(raw.get(id)!.polygon);
+          expect(historicalCells.get(id)!.rasterId).toBeUndefined();
+          expect(historicalCells.get(id)!.entranceSide).toBe(entrance.side);
         }
       }
     },
@@ -205,12 +229,22 @@ describe('untouched fixed entrance footprints', () => {
     config.decoration.enabled = false;
     const tile = generateTile(config);
     expect(tile.stats.connected).toBe(true);
-    expect(tile.fields.length).not.toBe(7);
+    expect(tile.fields.length).toBeGreaterThanOrEqual(8);
     expect(tile.warnings.some((warning) => warning.includes('7'))).toBe(true);
-    for (const entry of tile.entrances)
-      expect([...tile.fields.find((field) => field.id === entry.fieldId)!.cellIds].sort()).toEqual(
-        [...entry.footprintCellIds].sort(),
-      );
+    const expected = buildEntranceFootprints(config.grid);
+    for (const entry of tile.entrances) {
+      const field = tile.fields.find((field) => field.id === entry.fieldId)!;
+      expect(entry.cellIds).toEqual(expected[entry.side]!.mouthIds);
+      expect(entry.cellIds.every((id) => field.cellIds.includes(id))).toBe(true);
+      expect(
+        boundaryCells(tile.cells, entry.side)
+          .filter((cell) => cell.fieldId)
+          .map((cell) => cell.id)
+          .sort(),
+      ).toEqual([...entry.cellIds].sort());
+      expect(isConnectedSelection(field.cellIds, tile.cells)).toBe(true);
+      expect(field.area + 1e-10).toBeGreaterThanOrEqual(MIN_FIELD_AREA);
+    }
   });
 });
 

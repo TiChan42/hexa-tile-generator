@@ -164,3 +164,29 @@ Der Bulk-Export lädt die gewählten Kameraansichten als ZIP herunter. Standardm
 ## Aktualisierung: Generator 13 – verzweigte Wege und lesbare Feldfarben
 
 Der feste Sechs-Lanes-Aufbau wurde durch seedbasierte Innenanker und einen randomisierten Prim-Spannbaum ersetzt. Pentagonportale und sechs Außeneingänge sind die festen Netzwerkknoten; `paths.loop` ergänzt wenige Querverbindungen. Routingkosten enthalten Höhenwechsel und eine seedbasierte Kurvenführung. Vor dem Routing wachsen die Feldkerne über die Mindestfläche hinaus zu kompakten Flächen; natürliche Kontakte zwischen Kernen erzeugen zusätzliche Abzweigungen. Für automatisch abgeleitete Spielfeldfarben sorgt eine OKLab-Kontrastkorrektur gegenüber den lokalen Landschaftsfarben. Sie zielt auf einen Abstand von 0,18 und wählt bei nicht erreichbarem Ziel den bestmöglichen Abstand; manuelle Farbwerte bleiben exakt. Wegen der geänderten Seed-Ausgabe steigt das Konfigurationsschema von 12 auf 13; V12 wird strikt migriert, ohne gespeicherte Feldformen zu verändern.
+
+## Abgeschlossene Integration und Pipeline
+
+Die historischen Migrations-, API-, Autosave- und Browserprüfungen verwenden nun das aktuelle Versionspaar 13 / 13.0.0 und bleiben für jedes alte Eingabeformat strikt. Zusätzliche Prüfungen decken Bulk-Erzeugung und -Bearbeitung, feste und variierte Biome, gemeinsame Noise-Koordinaten, Objektfarbprofile sowie die ZIP-Dateistruktur und unveränderte PNG-Nutzdaten ab. Die Coverage-Grenzen bleiben unverändert; Bulk-Persistenz und ZIP-Erzeugung sind zusätzlich in die Coverage aufgenommen.
+
+Beim Import sehr alter Einzelprojekte stammen Terrain-Noise-Seed und Ursprung ausdrücklich aus dem damaligen Tile-Seed und Ursprung 0. Ein V3-Seriencontainer migriert auch enthaltene V12-Kacheln, ohne gespeicherte Feldformen oder Farbprofile zu ersetzen. Der Seriencontainer bleibt Version 3, da seine Struktur unverändert ist.
+
+Ein gemeinsamer Wechsel der Rasterart oder Rasterauflösung verwirft wie im Einzelkachel-Editor rasterabhängige Feldformen und Objektplatzierungen und schaltet auf automatische Wege um. Die ursprüngliche Objektdichte wird wiederhergestellt. Anzeigeoptionen, Subrasteränderungen, Randänderungen und Noise-Umschaltung lösen diesen Neuaufbau nicht aus. Die Serienoberfläche erklärt diese Folge am Rasterregler.
+
+Die Browserabnahme ergänzt einen zugänglichen Namen für den Bulk-Knopf auch bei ausgeblendeter mobiler Textbeschriftung. Objektfarbvarianten teilen sich jetzt je Modell ein Instanz-Mesh, sodass das bestehende Limit für Zeichenaufrufe auch mit allen Objektarten und aktivierten Profilen erhalten bleibt. Der GLB-Export erhält dieselben Farben über explizites Einbacken der Instanzpaletten. Die automatische Pentagonfarbe darf sich bei geändertem Anschlussumfeld zur Kontrasterhaltung anpassen; ausdrücklich gespeicherte Farben bleiben exakt.
+
+## Generator 14: flächiges Wegenetz und Rasteranschlüsse
+
+Automatische Innenfelder werden als zusammenhängende Flächen partitioniert und kompakt ausgedünnt; gemeinsame breite Kontaktzonen bilden den Graphen. Der Graph bleibt ohne Pentagon verbunden. Kleine zufällige Randvariation, entspannte Flächenkerne und Landschaftstaschen ersetzen schmale nachträgliche Zellrouten. Neue Invarianten prüfen einstückbreite Ketten, Mindestfläche, Zusammenhang, Kompaktheit und vollständige Rasterziele an den Pentagonportalen über mehrere Seeds, Feldzahlen, Rasterarten und Centerpositionen.
+
+Pentagonseiten wählen vollständige Rasterzellen außerhalb des reservierten Fußabdrucks. Eine kurze mittige Mündung verbreitert sich bis zur zugewandten Rasterkante, ohne Landschaftsecken oder fremde Zielzellen zu schneiden. Erst das fertige normale Wegenetz bestimmt die nahen Besitzer von zwei oder drei gesäten Anschlüssen. Kappen bleiben horizontal und Höhendifferenzen behalten senkrechte Wände.
+
+Schema und Generator steigen auf 14 / 14.0.0. Das eingefrorene V13-Schema und `legacyLayout: true` halten existierende Layouts reproduzierbar. Eine mit dem ursprünglichen V13-Code erzeugte Fixture-Geometrie wird gegen einen festen SHA-256-Wert verglichen. Neue Autosaves verwenden einen eigenen V14-Schlüssel; ältere Quellen bleiben bestehen. Der ausdrückliche Neuaufbauknopf aktiviert das neue Verfahren und ist zusammen mit dem vollständigen vorherigen Projektstand per Undo wiederherstellbar.
+
+## Generator 15: kleinere Felder und erkennbare Pfade
+
+- Kleinere Feldflächen und explizite Trennung unerwünschter Nachbarschaften; gewöhnlich zwei oder drei Kontakte, selten vier.
+- Unveränderte mittige Außenmündungen mit variablen Innenformen der Randfelder.
+- Rasterlinien ohne zusätzliche Landschaftsschnitte am Pentagon; dünne schwarze Feldkontur an der Kachelkante.
+- Aktionssymbole in der breitesten passenden Fläche statt am bisherigen Feldmittelpunkt.
+- Striktes Schema15 und eingefrorene V14-Kompatibilität mit eigenem Autosave-Schlüssel.

@@ -12,7 +12,10 @@ import type { GeneratedTile, TileConfig } from './types';
 export function generateTile(input: TileConfig): GeneratedTile {
   const config = parseConfig(input),
     center = createCenterPolygon(config.seed, config.center),
-    cells = buildGrid(config.grid, center, { portalWidth: config.center.portalWidth });
+    cells = buildGrid(config.grid, center, {
+      portalWidth: config.center.portalWidth,
+      legacy: config.legacyLayout,
+    });
   for (const cell of cells) {
     const value = fbm(
       config.terrain.noise.seed,
