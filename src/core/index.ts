@@ -1,6 +1,7 @@
 export * from './types';
 export * from './objects';
 export * from './object-colors';
+export * from './object-sizes';
 export * from './config';
 export * from './geometry';
 export * from './random';

@@ -8,6 +8,7 @@ import {
   migrateConfig,
   MIN_FIELD_AREA,
   randomAt,
+  decorationScale,
 } from '../src/core';
 import type { TileConfig } from '../src/core';
 
@@ -181,9 +182,12 @@ describe('explicit config migration', () => {
     },
   );
 
-  it('strictly migrates V12 to V13 without changing saved field data or preferences', () => {
+  it('strictly migrates V12 without changing saved field data or preferences', () => {
+    const { sizeProfiles, ...oldDecoration } = structuredClone(defaultConfig.decoration);
+    void sizeProfiles;
     const legacy = {
       ...structuredClone(defaultConfig),
+      decoration: oldDecoration,
       schemaVersion: 12 as const,
       generatorVersion: '12.0.0' as const,
     };
@@ -192,8 +196,8 @@ describe('explicit config migration', () => {
     ];
     const result = migrateConfig(legacy);
     expect(result.migrated).toBe(true);
-    expect(result.config.schemaVersion).toBe(15);
-    expect(result.config.generatorVersion).toBe('15.0.0');
+    expect(result.config.schemaVersion).toBe(16);
+    expect(result.config.generatorVersion).toBe('16.0.0');
     expect(result.config.paths.fields).toEqual(legacy.paths.fields);
     expect(result.config.paths.fieldCount).toBe(legacy.paths.fieldCount);
     expect(result.config.decoration.colorProfiles).toEqual(legacy.decoration.colorProfiles);
@@ -205,9 +209,9 @@ describe('explicit config migration', () => {
       before = JSON.stringify(legacy),
       result = migrateConfig(legacy);
     expect(result.migrated).toBe(true);
-    expect(result.notices[0]).toContain('Generator 15');
-    expect(result.config.schemaVersion).toBe(15);
-    expect(result.config.generatorVersion).toBe('15.0.0');
+    expect(result.notices[0]).toContain('Generator 16');
+    expect(result.config.schemaVersion).toBe(16);
+    expect(result.config.generatorVersion).toBe('16.0.0');
     expect(result.config.center).toEqual({
       shape: 'regular',
       scale: 1,
@@ -232,14 +236,14 @@ describe('explicit config migration', () => {
     expect(result.config.paths.auto).toBe(true);
     expect(result.config.center.offset).toEqual({ x: 0, y: 0 });
     expect(result.config.decoration.density).toBe(0.72);
-    expect(result.notices.join(' ')).toContain('Generator 15');
+    expect(result.notices.join(' ')).toContain('Generator 16');
   });
   it('migrates the frozen v3 format explicitly and rejects unsupported v4 elevation values', () => {
     const source = structuredClone(v3),
       before = JSON.stringify(source),
       result = migrateConfig(source);
     expect(result.migrated).toBe(true);
-    expect(result.config.schemaVersion).toBe(15);
+    expect(result.config.schemaVersion).toBe(16);
     expect(result.config.center.portalWidth).toBe(0.45);
     expect(result.config.paths.heightMode).toBe('flat');
     expect(result.config.paths.fields).toEqual([]);
@@ -390,7 +394,7 @@ describe('lossless V4/V5 migration to stepped walls', () => {
       const before = JSON.stringify(legacy);
       const migration = migrateConfig(legacy);
       expect(migration.migrated).toBe(true);
-      expect(migration.notices.join(' ')).toContain('Projekt auf Generator 15 umgestellt');
+      expect(migration.notices.join(' ')).toContain('Projekt auf Generator 16 umgestellt');
       expect(migration.notices.join(' ')).toContain('unverändert übernommen');
       const { transitionWidth: obsoleteWidth, ...paths } = legacy.paths;
       expect(obsoleteWidth).toBeGreaterThanOrEqual(0.01);
@@ -530,13 +534,14 @@ it('chooses theme-specific mixed vegetation and keeps object choices independent
   expect(changed.fields).toEqual(initial.fields);
   expect(changed.cells).toEqual(initial.cells);
   const placement = (tile: typeof initial) =>
-    tile.decorations.map(({ id, position, scale, rotation }) => ({
+    tile.decorations.map(({ id, position, rotation }) => ({
       id,
       position,
-      scale,
       rotation,
     }));
   expect(placement(changed)).toEqual(placement(initial));
+  for (const object of changed.decorations)
+    expect(object.scale).toBe(decorationScale(first, object.kind, object.id));
 }, 30000);
 
 it('validates obsolete ramp widths in frozen V5 before removing only that setting', () => {
@@ -616,7 +621,7 @@ it('validates obsolete ramp widths in frozen V5 before removing only that settin
   ).toThrow();
 });
 
-it('keeps the seeded recipe unchanged apart from its versions and removed ramp width', () => {
+it('keeps the stored recipe and personal sizes while migrating versions, ramp width and size profiles', () => {
   const current = createSeededProject('wald-123');
   current.decoration.colorProfiles.trees.enabled = false;
   current.decoration.colorProfiles.mushrooms.enabled = false;
@@ -641,7 +646,11 @@ it('keeps the seeded recipe unchanged apart from its versions and removed ramp w
       transitionWidth: 0.025 + randomAt('wald-123', 'project-v4', 'transition') * 0.04,
     },
   };
-  expect(migrateConfig(legacy).config).toEqual({ ...current, legacyLayout: true });
+  expect(migrateConfig(legacy).config).toEqual({
+    ...current,
+    legacyLayout: true,
+    decoration: { ...current.decoration, sizeProfiles: defaultConfig.decoration.sizeProfiles },
+  });
   expect(current.paths).not.toHaveProperty('transitionWidth');
 });
 
@@ -712,7 +721,7 @@ it('migrates frozen V6 configurations one to one without snapshotting or resetti
     border: defaultConfig.border,
   });
   expect(result.migrated).toBe(true);
-  expect(result.notices.join(' ')).toContain('Projekt auf Generator 15 umgestellt');
+  expect(result.notices.join(' ')).toContain('Projekt auf Generator 16 umgestellt');
   expect(result.notices.join(' ')).toContain('unverändert übernommen');
   expect(JSON.stringify(legacy)).toBe(before);
   expect(generateTile(result.config)).toEqual(generateTile(source));
@@ -785,7 +794,7 @@ it('adds default rules, noise coordinates and disabled color profiles when migra
       exportPolicy: 'block',
     },
   });
-  expect(result.notices.join(' ')).toContain('Projekt auf Generator 15 umgestellt');
+  expect(result.notices.join(' ')).toContain('Projekt auf Generator 16 umgestellt');
   expect(result.notices.join(' ')).toContain('Prüfregeln');
   expect(JSON.stringify(source)).toBe(before);
   result.config.rules.minFieldArea = 0;
@@ -890,7 +899,7 @@ it('migrates V8 with an inactive border, noise coordinates and disabled color pr
     border: { enabled: false, width: 0.015, mode: 'black', color: '#000000' },
   });
   expect(result.migrated).toBe(true);
-  expect(result.notices.join(' ')).toContain('Projekt auf Generator 15 umgestellt');
+  expect(result.notices.join(' ')).toContain('Projekt auf Generator 16 umgestellt');
   expect(result.notices.join(' ')).toContain('gespeicherte Platzierungen bleiben erhalten');
   expect(JSON.stringify(legacy)).toBe(before);
   result.config.border.enabled = true;
@@ -992,7 +1001,7 @@ it('migrates V9 by adding editing and action defaults without changing any saved
     actions: defaultConfig.actions,
   });
   expect(result.migrated).toBe(true);
-  expect(result.notices.join(' ')).toContain('Projekt auf Generator 15 umgestellt');
+  expect(result.notices.join(' ')).toContain('Projekt auf Generator 16 umgestellt');
   expect(result.notices.join(' ')).toContain('vorhandene Aktionen werden nicht neu ausgewürfelt');
   expect(JSON.stringify(legacy)).toBe(before);
   result.config.actions.weights.rotate = 0;

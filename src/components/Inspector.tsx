@@ -4,6 +4,7 @@ import { ACTIONS } from '../core/types';
 import { BIOME_PRESETS } from '../core/biomes';
 import type { BiomePresetId } from '../core/biomes';
 import { DECORATION_CATALOG } from '../core/objects';
+import { defaultObjectSizeProfiles } from '../core/object-sizes';
 import {
   DEFAULT_MUSHROOM_COLOR_PROFILES,
   DEFAULT_TREE_COLOR_PROFILES,
@@ -230,16 +231,16 @@ export default function Inspector(props: Props) {
             <p className="section-description">Höhen aus mehrschichtigem Perlin-Rauschen.</p>
             <h3 className="biome-heading">Biomprofile</h3>
             <p className="hint">
-              Farben für Gelände, Wände und Wege sowie passende Objektarten. Seed, Relief, Raster
-              und Wege bleiben erhalten; unpassende gesetzte Objekte werden entfernt. Rückgängig
-              stellt alles wieder her.
+              Farben für Gelände, Wände und Wege sowie passende Objektarten und Größenprofile. Seed,
+              Relief, Raster und Wege bleiben erhalten; unpassende gesetzte Objekte werden entfernt.
+              Rückgängig stellt alles wieder her.
             </p>
             <div className="biome-preset-grid">
               {BIOME_PRESETS.map((preset) => (
                 <button
                   className="biome-preset"
                   key={preset.id}
-                  title={`${preset.summary}. Wendet Farbverläufe und Objektarten an.`}
+                  title={`${preset.summary}. Wendet Farbverläufe, Objektarten und Größenprofile an.`}
                   aria-label={`Biomprofil ${preset.name} anwenden`}
                   onClick={() => props.applyBiome(preset.id)}
                 >
@@ -1079,6 +1080,60 @@ export default function Inspector(props: Props) {
               importieren und zuweisen.
             </p>
           </Section>
+          <Section title="Objektproportionen">
+            <Control label="Größenprofil">
+              <select
+                aria-label="Größenprofil"
+                value={props.objectKind}
+                onChange={(event) => props.setObjectKind(event.target.value as DecorationKind)}
+              >
+                {DECORATION_CATALOG.map(({ kind, label }) => (
+                  <option key={kind} value={kind}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </Control>
+            <Range
+              label="Basisgröße der Art"
+              value={c.decoration.sizeProfiles[props.objectKind].scale}
+              min={0.1}
+              max={3}
+              step={0.05}
+              unit="×"
+              onChange={(value) =>
+                update((draft) => {
+                  draft.decoration.sizeProfiles[props.objectKind].scale = value;
+                })
+              }
+            />
+            <Range
+              label="Individuelle Größenschwankung"
+              value={c.decoration.sizeProfiles[props.objectKind].variation * 100}
+              min={0}
+              max={50}
+              unit="%"
+              onChange={(value) =>
+                update((draft) => {
+                  draft.decoration.sizeProfiles[props.objectKind].variation = value / 100;
+                })
+              }
+            />
+            <p className="hint">
+              Gilt für alle Objekte dieser Art, auch für gesetzte Exemplare. Die einzelne
+              Objektgröße kommt zusätzlich hinzu. Biome setzen passende Größenprofile.
+            </p>
+            <button
+              className="text-button"
+              onClick={() =>
+                update((draft) => {
+                  draft.decoration.sizeProfiles = defaultObjectSizeProfiles();
+                })
+              }
+            >
+              Standardgrößen wiederherstellen
+            </button>
+          </Section>
           <Section title="Natürliche Verteilung">
             <Toggle
               label="Objekte anzeigen"
@@ -1311,6 +1366,7 @@ export default function Inspector(props: Props) {
                 <>
                   <Range
                     label="Objektgröße"
+                    hint="Individueller Faktor zur Basisgröße und natürlichen Schwankung dieser Art."
                     value={selectedPlacement.scale}
                     min={0.2}
                     max={3}

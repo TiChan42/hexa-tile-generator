@@ -12,18 +12,23 @@ export function v13MigrationAdditions(source: {
   profiles.mushrooms.enabled = false;
   return {
     legacyLayout: true as const,
-    schemaVersion: 15,
-    generatorVersion: '15.0.0',
+    schemaVersion: 16,
+    generatorVersion: '16.0.0',
     terrain: { ...source.terrain, noise: { seed: source.seed, origin: { x: 0, y: 0 } } },
-    decoration: { ...source.decoration, colorProfiles: profiles },
+    decoration: {
+      ...source.decoration,
+      colorProfiles: profiles,
+      sizeProfiles: structuredClone(defaultConfig.decoration.sizeProfiles),
+    },
   };
 }
 
 /** Build historical test inputs without leaking fields introduced by V11/V12. */
 export function preV11Materials(source: TileConfig) {
   const { noise, ...terrain } = source.terrain;
-  const { colorProfiles, ...decoration } = source.decoration;
+  const { colorProfiles, sizeProfiles, ...decoration } = source.decoration;
   void noise;
   void colorProfiles;
+  void sizeProfiles;
   return { terrain, decoration };
 }

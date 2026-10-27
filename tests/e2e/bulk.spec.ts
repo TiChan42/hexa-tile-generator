@@ -41,7 +41,13 @@ test('bulk generation, both viewers, tile edits, historical import and PNG ZIP v
         generatorVersion: '12.0.0',
         export: { size: 128, transparent: true },
         paths: { ...tile.config.paths, auto: true, fields: [] },
-        decoration: { ...tile.config.decoration, enabled: false, placements: [] },
+        decoration: {
+          ...Object.fromEntries(
+            Object.entries(tile.config.decoration).filter(([key]) => key !== 'sizeProfiles'),
+          ),
+          enabled: false,
+          placements: [],
+        },
       },
     })),
   };
@@ -51,7 +57,7 @@ test('bulk generation, both viewers, tile edits, historical import and PNG ZIP v
     buffer: Buffer.from(JSON.stringify(historical)),
   });
   await expect.poll(async () => (await stored()).tiles[0].config.export.size).toBe(128);
-  expect((await stored()).tiles[0].config.schemaVersion).toBe(15);
+  expect((await stored()).tiles[0].config.schemaVersion).toBe(16);
   await bulk.getByRole('tab', { name: '2D-Draufsicht', exact: true }).click();
   await expect(bulk.locator('.bulk-map-tile')).toHaveCount(2, { timeout: 30000 });
   await bulk.getByRole('tab', { name: '3D-Brett', exact: true }).click();

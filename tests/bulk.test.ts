@@ -369,7 +369,14 @@ describe('editable bulk collections', () => {
       const tiles = current.tiles.map((tile) => ({
         id: tile.id,
         ...(version === 1 ? {} : { biomeId: tile.biomeId }),
-        config: { ...tile.config, schemaVersion: 12, generatorVersion: '12.0.0' },
+        config: {
+          ...tile.config,
+          schemaVersion: 12,
+          generatorVersion: '12.0.0',
+          decoration: Object.fromEntries(
+            Object.entries(tile.config.decoration).filter(([key]) => key !== 'sizeProfiles'),
+          ),
+        },
       }));
       const legacy = { ...(version === 1 ? oldEnvelope : current), version, tiles };
       const before = JSON.stringify(legacy);

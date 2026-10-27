@@ -1,15 +1,22 @@
+import { DEFAULT_DECORATION_SCALE } from './object-sizes';
 import { configSchema, defaultConfig } from './config';
 import { generateTile } from './generate';
 import { placementOffset } from './subgrid';
 import { hash32, randomAt } from './random';
 import { evaluateTileRules } from './rules';
-import { applyBiomePreset, BIOME_PRESETS, randomizeBiomePreset } from './biomes';
+import {
+  applyBiomePreset,
+  BIOME_PRESETS,
+  biomeObjectSizeProfiles,
+  randomizeBiomePreset,
+} from './biomes';
 import type { ActionId, DecorationKind, GradientStop, TileConfig } from './types';
 import type { BiomePresetId } from './biomes';
 
 const THEMES = [
   {
     name: 'Mooswald',
+    sizeBiome: 'mosslight',
     species: ['tree', 'pine', 'oak', 'birch', 'bush', 'fern', 'mushrooms', 'log', 'rock'],
     terrain: ['#314c43', '#5b7951', '#8eac67', '#c6c68e'],
     walls: ['#303a30', '#75674b', '#baa878'],
@@ -17,6 +24,7 @@ const THEMES = [
   },
   {
     name: 'Nebelmoor',
+    sizeBiome: 'nebelmoor',
     species: ['willow', 'birch', 'deadTree', 'bush', 'fern', 'mushrooms', 'reeds', 'log', 'rock'],
     terrain: ['#30464b', '#526d6c', '#86a391', '#bcc8ab'],
     walls: ['#303938', '#626e5c', '#9da58b'],
@@ -24,6 +32,7 @@ const THEMES = [
   },
   {
     name: 'Herbsthain',
+    sizeBiome: 'abendrot',
     species: [
       'maple',
       'oak',
@@ -42,6 +51,7 @@ const THEMES = [
   },
   {
     name: 'Frostgrat',
+    sizeBiome: 'frostgrat',
     species: ['tree', 'pine', 'birch', 'deadTree', 'grass', 'rock', 'quartz', 'stump'],
     terrain: ['#354a61', '#608394', '#99bdc1', '#e1e7d9'],
     walls: ['#303c4a', '#687e88', '#b3c3bc'],
@@ -49,6 +59,7 @@ const THEMES = [
   },
   {
     name: 'Amethysthain',
+    sizeBiome: 'amethysthain',
     species: ['pine', 'oak', 'birch', 'bush', 'fern', 'mushrooms', 'crystal', 'quartz', 'rock'],
     terrain: ['#453e57', '#746e85', '#a49aad', '#d6c9c0'],
     walls: ['#383345', '#736278', '#b398a4'],
@@ -56,6 +67,7 @@ const THEMES = [
   },
   {
     name: 'Sonnensteppe',
+    sizeBiome: 'sonnensteppe',
     species: ['tree', 'oak', 'bush', 'grass', 'flowers', 'stump', 'rock', 'quartz'],
     terrain: ['#5b6242', '#8d9658', '#c2ba77', '#e2d39b'],
     walls: ['#494133', '#927953', '#c8ad77'],
@@ -63,6 +75,7 @@ const THEMES = [
   },
 ] as const satisfies readonly {
   name: string;
+  sizeBiome: BiomePresetId;
   species: readonly DecorationKind[];
   terrain: readonly string[];
   walls: readonly string[];
@@ -175,6 +188,7 @@ export function createSeededProject(seed: string, options: SeededProjectOptions 
     density: between('density', 0.45, 0.8),
     maxPerCell: pick('objects-per-cell', [3, 4, 5, 6]),
     species: [...theme.species],
+    sizeProfiles: biomeObjectSizeProfiles(theme.sizeBiome),
     colorProfiles: structuredClone(defaultConfig.decoration.colorProfiles),
     placements: [],
   };
@@ -243,7 +257,8 @@ export function createSeededProject(seed: string, options: SeededProjectOptions 
       cellId: object.cellId,
       // Canonical JSON despite last-bit lattice differences between JS engines.
       offset: { x: Number(offset.x.toFixed(12)), y: Number(offset.y.toFixed(12)) },
-      scale: object.scale * config.grid.divisions,
+      // Store the personal scale only: the stable profile draw is applied once when rendered.
+      scale: DEFAULT_DECORATION_SCALE,
       rotation: object.rotation,
     };
   });

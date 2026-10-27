@@ -88,8 +88,11 @@ describe('seeded object color profiles', () => {
   it.each(['11.0.0', '11.1.0'])(
     'migrates %s with disabled profiles and no changes to saved materials',
     (generatorVersion) => {
-      const { colorProfiles, ...decoration } = structuredClone(defaultConfig.decoration);
+      const { colorProfiles, sizeProfiles, ...decoration } = structuredClone(
+        defaultConfig.decoration,
+      );
       void colorProfiles;
+      void sizeProfiles;
       const legacy = {
         ...structuredClone(defaultConfig),
         schemaVersion: 11,
@@ -101,9 +104,13 @@ describe('seeded object color profiles', () => {
       expect(migrated.config).toEqual({
         ...legacy,
         legacyLayout: true,
-        schemaVersion: 15,
-        generatorVersion: '15.0.0',
-        decoration: { ...decoration, colorProfiles: defaultObjectColorProfiles(false) },
+        schemaVersion: 16,
+        generatorVersion: '16.0.0',
+        decoration: {
+          ...decoration,
+          sizeProfiles: defaultConfig.decoration.sizeProfiles,
+          colorProfiles: defaultObjectColorProfiles(false),
+        },
       });
       expect(legacy).toEqual(before);
       expect(() =>

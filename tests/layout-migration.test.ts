@@ -8,7 +8,7 @@ it('keeps the actual V14 generated geometry and metadata unchanged on migration'
   const migration = migrateConfig(frozenV14);
   expect(migration.migrated).toBe(true);
   expect(migration.config.layoutVersion).toBe(14);
-  expect(migration.config.schemaVersion).toBe(15);
+  expect(migration.config.schemaVersion).toBe(16);
   const config = structuredClone(migration.config);
   config.decoration.enabled = false;
   const digest = createHash('sha256')
@@ -23,9 +23,9 @@ it('keeps the actual V14 generated geometry and metadata unchanged on migration'
   });
 });
 
-it('strictly validates frozen V14 and current V15 version pairs', () => {
+it('strictly validates frozen V14 and current version pairs', () => {
   expect(() => migrateConfig({ ...frozenV14, layoutVersion: 14 })).toThrow();
-  expect(() => migrateConfig({ ...frozenV14, generatorVersion: '15.0.0' })).toThrow();
+  expect(() => migrateConfig({ ...frozenV14, generatorVersion: '16.0.0' })).toThrow();
   expect(() => migrateConfig({ ...defaultConfig, generatorVersion: '14.0.0' })).toThrow();
   expect(() => migrateConfig({ ...defaultConfig, layoutVersion: 15 })).toThrow();
 });

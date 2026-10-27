@@ -2,6 +2,7 @@ import { pointInPolygon, regularPolygon } from './geometry';
 import { fbm, randomAt } from './random';
 import { placementOffset, placementPoint } from './subgrid';
 import { decorationClearsBorder } from './tile-border';
+import { decorationScale } from './object-sizes';
 import type { Decoration, DecorationKind, Point, TileCell, TileConfig } from './types';
 
 export interface DecorationSlot {
@@ -117,14 +118,8 @@ export function buildDecorations(
       undefined,
     );
     if (nearest) occupied.add(`${cell.id}|${nearest.id}`);
-    if (
-      !decorationClearsBorder(
-        config,
-        position,
-        placement.scale / config.grid.divisions,
-        placement.rotation,
-      )
-    ) {
+    const scale = decorationScale(config, placement.kind, placement.id, placement.scale);
+    if (!decorationClearsBorder(config, position, scale, placement.rotation)) {
       warnings.push(
         `Objekt „${placement.id}“ ragt mit seiner Grundfläche in die reservierte Randzone und wird ausgeblendet.`,
       );
@@ -136,7 +131,7 @@ export function buildDecorations(
       cellId: cell.id,
       position,
       height: cell.height,
-      scale: placement.scale / config.grid.divisions,
+      scale,
       rotation: placement.rotation,
     });
   }
@@ -164,19 +159,18 @@ export function buildDecorations(
         randomAt(config.seed, 'decor-presence-v3', cell.id, slot.id) >= probability
       )
         continue;
-      const scale =
-        (0.5 + randomAt(config.seed, 'decor-scale-v3', cell.id, slot.id) * 0.4) /
-        config.grid.divisions;
       const rotation = randomAt(config.seed, 'decor-rotation-v3', cell.id, slot.id) * 360;
-      if (!decorationClearsBorder(config, slot.position, scale, rotation)) continue;
       const kind: DecorationKind =
         randomAt(config.seed, 'decor-mixed-v3', cell.id, slot.id) < 0.3
           ? species[
               Math.floor(randomAt(config.seed, 'decor-kind-v3', cell.id, slot.id) * species.length)
             ]!
           : species[dominant]!;
+      const id = `decor:${cell.id}:${slot.id}`;
+      const scale = decorationScale(config, kind, id);
+      if (!decorationClearsBorder(config, slot.position, scale, rotation)) continue;
       decorations.push({
-        id: `decor:${cell.id}:${slot.id}`,
+        id,
         kind,
         cellId: cell.id,
         position: slot.position,

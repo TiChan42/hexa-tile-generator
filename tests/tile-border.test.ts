@@ -206,6 +206,9 @@ describe('deterministic decoration filtering and reversible manual conflicts', (
       config.grid.divisions = divisions;
       config.decoration.density = 0;
       config.border = { enabled: false, width: 0.03, mode: 'transparent', color: '#000000' };
+      // Isolate the border geometry across every kind; nonuniform profiles are covered separately.
+      for (const kind of DECORATION_KINDS)
+        config.decoration.sizeProfiles[kind] = { scale: 1, variation: 0 };
       const cell = fullCell(),
         center = createCenterPolygon(config.seed, config.center),
         near = { x: 0, y: APOTHEM - config.border.width - 0.002 };

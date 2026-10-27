@@ -20,6 +20,7 @@ import {
   sampleGradient,
   subtractPolygon,
   centroid,
+  decorationScale,
 } from '../src/core';
 import type { TileConfig } from '../src/core';
 const config = (): TileConfig => structuredClone(defaultConfig);
@@ -312,7 +313,9 @@ describe('versioned deterministic generator', () => {
       },
     ];
     const tile = generateTile(c);
-    expect(tile.decorations.find((d) => d.id === 'manual-tree')?.scale).toBe(2 / c.grid.divisions);
+    expect(tile.decorations.find((d) => d.id === 'manual-tree')?.scale).toBe(
+      decorationScale(c, 'tree', 'manual-tree', 2),
+    );
     expect(tile.decorations.filter((d) => d.id === 'manual-tree')).toHaveLength(1);
     expect(tile.decorations.some((d) => d.id === 'outside' || d.id === 'bad')).toBe(false);
     expect(tile.warnings.some((s) => s.includes('bad'))).toBe(true);

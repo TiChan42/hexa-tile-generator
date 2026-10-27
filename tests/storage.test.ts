@@ -40,10 +40,10 @@ const v2 = {
 const fixtures = [v1, v2, v3, v4, v5, v6, v7, v8, v9];
 
 describe('versioned browser project storage', () => {
-  it('prioritizes V15 and keeps every older storage key as a fallback', () => {
-    expect(PROJECT_STORAGE_KEY).toBe('hexa-studio-project-v15');
+  it('prioritizes V16 and keeps every older storage key as a fallback', () => {
+    expect(PROJECT_STORAGE_KEY).toBe('hexa-studio-project-v16');
     expect(PROJECT_STORAGE_KEYS).toEqual(
-      Array.from({ length: 15 }, (_, index) => `hexa-studio-project-v${15 - index}`),
+      Array.from({ length: 16 }, (_, index) => `hexa-studio-project-v${16 - index}`),
     );
     const storage = new MemoryStorage();
     const current = { ...structuredClone(defaultConfig), seed: 'current-v7' };
@@ -61,10 +61,10 @@ describe('versioned browser project storage', () => {
       const original = JSON.stringify(fixture);
       storage.entries.set(key, original);
       const result = loadStoredProject(storage);
-      expect(result.config.schemaVersion).toBe(15);
-      expect(result.config.generatorVersion).toBe('15.0.0');
+      expect(result.config.schemaVersion).toBe(16);
+      expect(result.config.generatorVersion).toBe('16.0.0');
       expect(result.migrated).toBe(true);
-      expect(result.notices.join(' ')).toContain('Projekt auf Generator 15 umgestellt');
+      expect(result.notices.join(' ')).toContain('Projekt auf Generator 16 umgestellt');
       expect(storage.entries.get(key)).toBe(original);
       expect(storage.writes).toEqual([]);
     },
@@ -127,7 +127,7 @@ describe('versioned browser project storage', () => {
     );
     storage.entries.set('hexa-studio-project-v5', JSON.stringify(v5));
     const result = loadStoredProject(storage);
-    expect(result.config.schemaVersion).toBe(15);
+    expect(result.config.schemaVersion).toBe(16);
     expect(result.config.paths).not.toHaveProperty('transitionWidth');
     expect(storage.reads.at(-1)).toBe('hexa-studio-project-v5');
   });
@@ -251,7 +251,7 @@ it('preserves V8 rules and objects while saving border settings exclusively into
   result.config.border = { enabled: true, width: 0.09, mode: 'transparent', color: '#345678' };
   expect(saveStoredProject(storage, result.config)).toBe(true);
   expect(storage.entries.get('hexa-studio-project-v8')).toBe(before);
-  expect(storage.writes).toEqual(['hexa-studio-project-v15']);
+  expect(storage.writes).toEqual(['hexa-studio-project-v16']);
   expect(loadStoredProject(storage)).toEqual({
     config: result.config,
     migrated: false,
@@ -287,7 +287,7 @@ it('migrates V9 preferences into V13 without replacing the historical autosave',
   result.config.actions.revision = 42;
   expect(saveStoredProject(storage, result.config)).toBe(true);
   expect(storage.entries.get('hexa-studio-project-v9')).toBe(original);
-  expect(storage.writes).toEqual(['hexa-studio-project-v15']);
+  expect(storage.writes).toEqual(['hexa-studio-project-v16']);
   expect(loadStoredProject(storage)).toEqual({
     config: result.config,
     migrated: false,

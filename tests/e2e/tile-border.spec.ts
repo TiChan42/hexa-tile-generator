@@ -8,6 +8,7 @@ import {
   pointInPolygon,
   decorationSlots,
   decorationClearsBorder,
+  decorationScale,
   inTileBorder,
 } from '../../src/core';
 import type { Point } from '../../src/core';
@@ -140,6 +141,7 @@ test('the complete object footprint avoids even transparent borders and saved ob
   config.camera.mode = 'top';
   config.border = { ...config.border, enabled: true, width: 0.025, mode: 'transparent' };
   config.decoration.density = 0.8;
+  config.decoration.sizeProfiles.tree.variation = 0;
   const tile = generateTile(config);
   expect(
     tile.decorations.every((object) =>
@@ -152,10 +154,11 @@ test('the complete object footprint avoids even transparent borders and saved ob
   );
   const forbidden = slots.find((slot) => inTileBorder(config, slot.position))!;
   const wide = { ...config, border: { ...config.border, width: 0.1 } };
+  const placedScale = decorationScale(config, 'tree', 'border-placement', 0.8);
   const allowed = slots.find(
     (slot) =>
-      decorationClearsBorder(config, slot.position, 0.8 / config.grid.divisions, 0) &&
-      !decorationClearsBorder(wide, slot.position, 0.8 / config.grid.divisions, 0),
+      decorationClearsBorder(config, slot.position, placedScale, 0) &&
+      !decorationClearsBorder(wide, slot.position, placedScale, 0),
   )!;
   expect(forbidden).toBeDefined();
   expect(allowed).toBeDefined();

@@ -31,6 +31,7 @@ import {
 import {
   decorationSlots,
   decorationClearsBorder,
+  decorationScale,
   inTileBorder,
   migrateConfig,
   placementPoint,
@@ -385,11 +386,12 @@ export default function App() {
           Math.hypot(b.position.x - click.x, b.position.y - click.y),
       );
       const offset = candidates[0]?.offset ?? { x: 0, y: 0 };
+      const idNew = `placed-${crypto.randomUUID().slice(0, 12)}`;
       if (
         !decorationClearsBorder(
           config,
           placementPoint(cell, offset),
-          0.8 / config.grid.divisions,
+          decorationScale(config, objectKind, idNew, 0.8),
           0,
         )
       ) {
@@ -404,7 +406,6 @@ export default function App() {
         notify('Dieses Subrasterfeld ist belegt. Du kannst das Objekt entfernen.');
         return;
       }
-      const idNew = `placed-${crypto.randomUUID().slice(0, 12)}`;
       update((d) => {
         d.decoration.enabled = true;
         d.decoration.placements.push({

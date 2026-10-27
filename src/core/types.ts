@@ -1,4 +1,5 @@
 import type { DecorationKind } from './objects';
+import type { ObjectSizeProfiles } from './object-sizes';
 
 /** Generator-space coordinates; renderer maps y to world z. Tile radius is exactly 1. */
 export interface Point {
@@ -52,12 +53,12 @@ export interface MushroomColorProfile {
   cap: [string, string, string];
 }
 export interface TileConfig {
-  schemaVersion: 15;
+  schemaVersion: 16;
   /** Preserve V13 raster fragments and automatic output until an explicit rebuild. */
   legacyLayout?: true;
   /** Preserve V14 organic field shapes until an explicit rebuild. */
   layoutVersion?: 14;
-  generatorVersion: '15.0.0';
+  generatorVersion: '16.0.0';
   name: string;
   seed: string;
   editing: { regeneratePathsOnCenterChange: boolean };
@@ -129,6 +130,7 @@ export interface TileConfig {
     density: number;
     maxPerCell: number;
     species: DecorationKind[];
+    sizeProfiles: ObjectSizeProfiles;
     colorProfiles: {
       trees: { enabled: boolean; profiles: TreeColorProfile[] };
       mushrooms: { enabled: boolean; profiles: MushroomColorProfile[] };

@@ -197,8 +197,8 @@ describe('organic fields and raster-aligned pentagon connections', () => {
       migration = migrateConfig(frozenV13);
     expect(migration.migrated).toBe(true);
     expect(migration.config.legacyLayout).toBe(true);
-    expect(migration.config.schemaVersion).toBe(15);
-    expect(migration.config.generatorVersion).toBe('15.0.0');
+    expect(migration.config.schemaVersion).toBe(16);
+    expect(migration.config.generatorVersion).toBe('16.0.0');
     const config = {
       ...migration.config,
       decoration: { ...migration.config.decoration, enabled: false },
