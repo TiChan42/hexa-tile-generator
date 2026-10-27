@@ -190,3 +190,11 @@ Schema und Generator steigen auf 14 / 14.0.0. Das eingefrorene V13-Schema und `l
 - Rasterlinien ohne zusätzliche Landschaftsschnitte am Pentagon; dünne schwarze Feldkontur an der Kachelkante.
 - Aktionssymbole in der breitesten passenden Fläche statt am bisherigen Feldmittelpunkt.
 - Striktes Schema15 und eingefrorene V14-Kompatibilität mit eigenem Autosave-Schlüssel.
+
+## Abwechselnder Spaltenversatz in Bulk-Serien
+
+Kachelliste, 2D-Draufsicht, 3D-Brett und Gesamtfeld-Exporte verwenden abwechselnd um eine halbe Kachelhöhe versetzte Spalten. Die dritte Spalte liegt wieder auf Höhe der ersten; der Versatz wächst nicht mehr zu einer Raute an. Der Seriencontainer wird wegen der geänderten Weltkoordinaten auf Version 4 angehoben. V1–V3 werden vor der Migration gegen die bisherige Koordinatenkonvention geprüft; durchgehendes Noise erhält die neuen Weltursprünge in gespeicherter Tile-Reihenfolge. Feldformen und Metadaten bleiben erhalten, während Höhen und Materialrauschen verschobener Tiles neu abgetastet werden. Alte Autosaves bleiben unter ihren bisherigen Schlüsseln erhalten. Geometrische Invarianten prüfen gemeinsame Hexkanten ohne Flächenüberlappung; Browsertests prüfen den halben Höhenversatz auch nach Zeilenumbrüchen und die neue Gesamtmodell-Anordnung.
+
+## Kachelliste mit 2D-Brett zusammengeführt
+
+Die Serienauswahl zeigt standardmäßig ein zusammenhängendes, vollständig gerendertes Brett statt einzelner Karten und einer zweiten 2D-Liste. Direkt anklickbare Hexflächen mit hellen, schwarz schattierten Namen wählen die Kacheln aus; der gemeinsame Bearbeiten-Knopf öffnet die Auswahl. Ziehen und Mausrad navigieren durch die Ansicht. Der Startausschnitt und **Alles anzeigen** passen sämtliche Kacheln samt Objekten an den verfügbaren Viewport an. Die Einzelkachel-Draufsicht erhält ebenfalls Verschieben und Zoom. Geometrie, Serienkoordinaten, gespeicherte Kamerawerte und reproduzierbare Exporte bleiben unverändert; die Versionsstände bleiben bestehen. Kamerainvarianten prüfen vollständige Einpassung bei schmalen und breiten Viewports, Browsertests Auswahl, Navigation, 49 Kacheln und unveränderte Exporte.

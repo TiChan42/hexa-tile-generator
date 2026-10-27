@@ -43,7 +43,7 @@ export interface BulkGenerationOptions {
 }
 
 export interface BulkProject {
-  version: 3;
+  version: 4;
   seed: string;
   rows: number;
   columns: number;
@@ -146,7 +146,7 @@ const bulkProjectV2Schema = z
     );
   }, 'Bulk-Serie muss vollständig und geordnet sein.');
 
-export const bulkProjectSchema = z
+const bulkProjectV3Schema = z
   .object({
     version: z.literal(3),
     seed: z.string().min(1).max(128),
@@ -174,6 +174,13 @@ export const bulkProjectSchema = z
     shuffleRevision: z.number().int().min(0).max(2147483647),
   })
   .strict()
+  .refine(
+    (project) => consistentBulkSettings(project, legacyBoardOrigin),
+    'Bulk-Serie muss vollständig, geordnet und mit ihren gemeinsamen Einstellungen konsistent sein.',
+  );
+
+export const bulkProjectSchema = z
+  .strictObject({ ...bulkProjectV3Schema.shape, version: z.literal(4) })
   .refine(
     (project) => consistentBulkSettings(project, boardOrigin),
     'Bulk-Serie muss vollständig, geordnet und mit ihren gemeinsamen Einstellungen konsistent sein.',
@@ -231,10 +238,14 @@ function consistentBulkSettings(
 }
 
 // The collection envelope is unchanged when an individual tile schema advances.
-const bulkProjectInputSchema = z.strictObject({
+const bulkProjectV3InputSchema = z.strictObject({
   ...bulkProjectV2Schema.shape,
   version: z.literal(3),
 });
+const bulkProjectInputSchema = z.discriminatedUnion('version', [
+  bulkProjectV3InputSchema,
+  z.strictObject({ ...bulkProjectV3InputSchema.shape, version: z.literal(4) }),
+]);
 
 export function migrateBulkProject(input: unknown): BulkProject {
   if (typeof input === 'object' && input !== null && 'version' in input && input.version === 1) {
@@ -263,16 +274,46 @@ export function migrateBulkProject(input: unknown): BulkProject {
     ...tile,
     config: migrateConfig(tile.config).config,
   }));
+  if (project.version === 3) {
+    // Validate the old coordinate convention before explicitly migrating its world origins.
+    const legacy = bulkProjectV3Schema.parse({ ...project, tiles });
+    const origins = new Map(
+      legacy.order.map((id, index) => [id, boardOrigin(index, legacy.columns)]),
+    );
+    return bulkProjectSchema.parse({
+      ...legacy,
+      version: 4,
+      tiles: legacy.tiles.map((tile) => ({
+        ...tile,
+        config: legacy.continuousNoise
+          ? {
+              ...tile.config,
+              terrain: {
+                ...tile.config.terrain,
+                noise: { ...tile.config.terrain.noise, origin: origins.get(tile.id)! },
+              },
+            }
+          : tile.config,
+      })),
+    });
+  }
   return bulkProjectSchema.parse({
     ...project,
     tiles,
   });
 }
 
-export function boardOrigin(index: number, columns: number) {
+function legacyBoardOrigin(index: number, columns: number) {
   const row = Math.floor(index / columns);
   const column = index % columns;
   return { x: column * 1.5, y: Math.sqrt(3) * (row + column / 2) };
+}
+
+/** Flat-top hex columns alternate by half a tile height instead of drifting downwards. */
+export function boardOrigin(index: number, columns: number) {
+  const row = Math.floor(index / columns);
+  const column = index % columns;
+  return { x: column * 1.5, y: Math.sqrt(3) * (row + (column % 2) / 2) };
 }
 
 function sharedTerrainProfile(terrain: TileConfig['terrain']) {
@@ -360,7 +401,7 @@ export function createBulkProject(input: BulkGenerationOptions): BulkProject {
   }
 
   return bulkProjectSchema.parse({
-    version: 3,
+    version: 4,
     seed: options.seed,
     rows: options.rows,
     columns: options.columns,

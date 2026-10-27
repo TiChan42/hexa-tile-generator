@@ -74,7 +74,8 @@ export class TileRenderer {
   private readonly orthographic = new THREE.OrthographicCamera(-1.3, 1.3, 1.3, -1.3, 0.01, 40);
   private readonly perspective = new THREE.PerspectiveCamera(35, 1, 0.01, 40);
   private camera: THREE.Camera = this.orthographic;
-  private readonly controls: OrbitControls;
+  private controls: OrbitControls;
+  private readonly controlsUp = new THREE.Vector3(0, 1, 0);
   private cameraGround: CameraGroundPoint[] = [];
   private pickRegions: SurfaceRegion[] = [];
   private pointerButton = -1;
@@ -88,6 +89,7 @@ export class TileRenderer {
   private width = 1;
   private height = 1;
   private pointerStart = new THREE.Vector2();
+  private pointerMoved = false;
   private disposed = false;
   private exporting = false;
   private pendingFrame: number | null = null;
@@ -176,19 +178,9 @@ export class TileRenderer {
     const fill = new THREE.DirectionalLight('#cce2dc', 1.2);
     fill.position.set(3, 2, -3);
     this.scene.add(fill);
-    this.controls = new OrbitControls(this.orthographic, this.canvas);
-    this.controls.target.copy(TARGET);
-    this.controls.enablePan = false;
-    this.controls.mouseButtons = { LEFT: null, MIDDLE: null, RIGHT: THREE.MOUSE.ROTATE };
-    this.controls.enableDamping = false;
-    this.controls.minDistance = 1.5;
-    this.controls.maxDistance = 12;
-    this.controls.minZoom = 0.4;
-    this.controls.maxZoom = 3;
-    this.controls.minPolarAngle = 0.01;
-    this.controls.maxPolarAngle = Math.PI - 5 * RAD;
-    this.controls.addEventListener('change', this.draw);
+    this.controls = this.createControls(this.orthographic);
     this.canvas.addEventListener('pointerdown', this.pointerDown);
+    this.canvas.addEventListener('pointermove', this.pointerMove);
     this.canvas.addEventListener('pointerup', this.pointerUp);
     this.canvas.addEventListener('contextmenu', this.contextMenu);
     this.canvas.addEventListener('webglcontextlost', this.contextLost);
@@ -203,6 +195,22 @@ export class TileRenderer {
     event.preventDefault();
     this.callbacks.onError?.('Die 3D-Verbindung wurde unterbrochen. Bitte lade den Editor neu.');
   };
+
+  private createControls(camera: THREE.Camera): OrbitControls {
+    const controls = new OrbitControls(camera, this.canvas);
+    controls.target.copy(TARGET);
+    controls.enablePan = false;
+    controls.mouseButtons = { LEFT: null, MIDDLE: null, RIGHT: THREE.MOUSE.ROTATE };
+    controls.enableDamping = false;
+    controls.minDistance = 1.5;
+    controls.maxDistance = 12;
+    controls.minZoom = 0.4;
+    controls.maxZoom = 3;
+    controls.minPolarAngle = 0.01;
+    controls.maxPolarAngle = Math.PI - 5 * RAD;
+    controls.addEventListener('change', this.draw);
+    return controls;
+  }
 
   private addGround(): void {
     // Soft radial shadow anchors the island; it never appears in exports.
@@ -523,10 +531,32 @@ export class TileRenderer {
       this.exporting,
       this.cameraGround,
     );
+    // OrbitControls caches the camera's up axis at construction; overhead pan uses a different axis.
+    if (!this.controlsUp.equals(this.camera.up)) {
+      this.controls.removeEventListener('change', this.draw);
+      this.controls.dispose();
+      this.controls = this.createControls(this.camera);
+      this.controlsUp.copy(this.camera.up);
+    }
     this.controls.object = this.camera;
     this.controls.target.copy(TARGET);
-    this.controls.enabled = view.mode === 'orbit';
+    this.controls.enabled = !this.exporting && view.mode !== 'perspective';
     this.controls.enableRotate = view.mode === 'orbit';
+    this.controls.enablePan = view.mode === 'top';
+    this.controls.screenSpacePanning = true;
+    this.controls.mouseButtons = {
+      LEFT: view.mode === 'top' ? THREE.MOUSE.PAN : null,
+      MIDDLE: THREE.MOUSE.DOLLY,
+      RIGHT: view.mode === 'top' ? THREE.MOUSE.PAN : THREE.MOUSE.ROTATE,
+    };
+    this.controls.touches.ONE = view.mode === 'top' ? THREE.TOUCH.PAN : THREE.TOUCH.ROTATE;
+    this.controls.touches.TWO = THREE.TOUCH.DOLLY_PAN;
+    this.canvas.setAttribute(
+      'aria-label',
+      view.mode === 'top'
+        ? 'Interaktive 2D-Kachel. Ziehen zum Verschieben, Mausrad zum Zoomen, Linksklick zum Auswählen.'
+        : 'Interaktive 3D-Kachel. Rechte Maustaste zum Drehen, Mausrad zum Zoomen, Linksklick zum Auswählen.',
+    );
     if (this.controls.enabled) this.controls.update();
     this.draw();
   }
@@ -578,6 +608,9 @@ export class TileRenderer {
       this.canvas.dataset.tileBorderColor = diagnostics.tileBorderColor;
       this.canvas.dataset.tileBorderMode = diagnostics.tileBorderMode;
       this.canvas.dataset.modelGeometryBuilds = String(diagnostics.modelGeometryBuilds);
+      this.canvas.dataset.cameraZoom = String(this.orthographic.zoom);
+      this.canvas.dataset.cameraX = String(this.camera.position.x);
+      this.canvas.dataset.cameraZ = String(this.camera.position.z);
       this.canvas.dataset.surfaceRevision = String(diagnostics.surfaceRevision);
       this.canvas.dataset.renderStyleVersion = String(RENDER_STYLE_VERSION);
     }
@@ -586,6 +619,15 @@ export class TileRenderer {
   private readonly pointerDown = (event: PointerEvent): void => {
     this.pointerButton = event.button;
     this.pointerStart.set(event.clientX, event.clientY);
+    this.pointerMoved = false;
+  };
+
+  private readonly pointerMove = (event: PointerEvent): void => {
+    if (
+      event.buttons &&
+      this.pointerStart.distanceTo(new THREE.Vector2(event.clientX, event.clientY)) > 5
+    )
+      this.pointerMoved = true;
   };
 
   private readonly contextMenu = (event: Event): void => {
@@ -595,6 +637,7 @@ export class TileRenderer {
   private readonly pointerUp = (event: PointerEvent): void => {
     if (
       !this.tile ||
+      this.pointerMoved ||
       !isSelectionClick(
         { x: this.pointerStart.x, y: this.pointerStart.y, button: this.pointerButton },
         { x: event.clientX, y: event.clientY, button: event.button },
@@ -734,6 +777,7 @@ export class TileRenderer {
     const previousWidth = this.width,
       previousHeight = this.height;
     const cameraState = captureCameraState(this.camera);
+    const controlsTarget = this.controls.target.clone();
     const configuredCameraKey = JSON.stringify(this.config.camera);
     const exportGeometryRevision = this.geometryRevision;
     const previousBackground = this.scene.background;
@@ -773,8 +817,10 @@ export class TileRenderer {
       if (
         JSON.stringify(this.config.camera) === configuredCameraKey &&
         (this.config.camera.mode === 'orbit' || this.geometryRevision === exportGeometryRevision)
-      )
+      ) {
         restoreCameraState(this.camera, cameraState);
+        this.controls.target.copy(controlsTarget);
+      }
       this.renderNow();
     }
   }
@@ -787,6 +833,7 @@ export class TileRenderer {
     this.controls.removeEventListener('change', this.draw);
     this.controls.dispose();
     this.canvas.removeEventListener('pointerdown', this.pointerDown);
+    this.canvas.removeEventListener('pointermove', this.pointerMove);
     this.canvas.removeEventListener('pointerup', this.pointerUp);
     this.canvas.removeEventListener('contextmenu', this.contextMenu);
     this.canvas.removeEventListener('webglcontextlost', this.contextLost);

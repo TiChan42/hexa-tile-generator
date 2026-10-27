@@ -51,7 +51,7 @@ function fixture(): BulkProject {
     return { id: `tile-${index}`, biomeId: null, config };
   });
   return {
-    version: 3,
+    version: 4,
     seed: 'model-export',
     rows: 1,
     columns: 3,
@@ -163,7 +163,7 @@ test('series GLBs include each tile and the ordered whole board; every image vie
   expect(tiles[1]!.matrix![12]).toBe(1.5);
   expect(tiles[1]!.matrix![14]).toBeCloseTo(Math.sqrt(3) / 2);
   expect(tiles[2]!.matrix![12]).toBe(3);
-  expect(tiles[2]!.matrix![14]).toBeCloseTo(Math.sqrt(3));
+  expect(tiles[2]!.matrix![14]).toBe(0);
   for (const path of [
     '01-export-kachel-2/modell.glb',
     '02-export-kachel-1/modell.glb',

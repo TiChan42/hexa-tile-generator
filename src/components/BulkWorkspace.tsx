@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowDownToLine,
   ArrowUpFromLine,
@@ -82,13 +82,19 @@ export default function BulkWorkspace({
   );
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [exportViews, setExportViews] = useState<BulkExportOption[]>(['top']);
-  const [viewMode, setViewMode] = useState<'cards' | '2d' | '3d'>('cards');
+  const [viewMode, setViewMode] = useState<'2d' | '3d'>('2d');
   const [previewData, setPreviewData] = useState<{
     key: string;
     tiles: Record<string, GeneratedTile>;
   } | null>(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
-  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [previewFailure, setPreviewFailure] = useState<{ key: string; message: string } | null>(
+    null,
+  );
+  const [previewAttempt, setPreviewAttempt] = useState(0);
+  const previewLoader = useRef(onLoadPreviews);
+  useEffect(() => {
+    previewLoader.current = onLoadPreviews;
+  }, [onLoadPreviews]);
   const [error, setError] = useState<string | null>(null);
   const importInput = useRef<HTMLInputElement>(null);
   const count = rows * columns;
@@ -99,10 +105,38 @@ export default function BulkWorkspace({
   const currentUniformGrid = project?.uniformGrid ?? uniformGrid;
   const currentUniformBorder = project?.uniformBorder ?? uniformBorder;
   const projectKey = useMemo(
-    () => (project ? JSON.stringify({ order: project.order, tiles: project.tiles }) : ''),
+    () =>
+      project
+        ? JSON.stringify({ columns: project.columns, order: project.order, tiles: project.tiles })
+        : '',
     [project],
   );
   const currentPreview = previewData?.key === projectKey ? previewData.tiles : null;
+  const previewError = previewFailure?.key === projectKey ? previewFailure.message : null;
+  const previewLoading = !!project && !currentPreview && !previewError;
+  useEffect(() => {
+    if (!project) return;
+    let active = true;
+    // Parent effects create the generation worker before this automatic first preview starts.
+    void Promise.resolve()
+      .then(() => (active ? previewLoader.current(project) : null))
+      .then((tiles) => {
+        if (active && tiles) {
+          setPreviewData({ key: projectKey, tiles });
+          setPreviewFailure(null);
+        }
+      })
+      .catch((reason: unknown) => {
+        if (active)
+          setPreviewFailure({
+            key: projectKey,
+            message: reason instanceof Error ? reason.message : 'Serienvorschau fehlgeschlagen.',
+          });
+      });
+    return () => {
+      active = false;
+    };
+  }, [project, projectKey, previewAttempt]);
   const orderedTiles = useMemo(
     () =>
       project
@@ -133,22 +167,8 @@ export default function BulkWorkspace({
   };
   const changeProject = (next: BulkProject) => {
     onProjectChange(next);
-    setViewMode('cards');
-    setPreviewError(null);
-  };
-  const openViewer = (mode: '2d' | '3d') => {
-    setViewMode(mode);
-    if (!project || currentPreview || previewLoading) return;
-    setPreviewLoading(true);
-    setPreviewError(null);
-    void onLoadPreviews(project)
-      .then((tiles) => setPreviewData({ key: projectKey, tiles }))
-      .catch((reason: unknown) =>
-        setPreviewError(
-          reason instanceof Error ? reason.message : 'Serienvorschau fehlgeschlagen.',
-        ),
-      )
-      .finally(() => setPreviewLoading(false));
+    setViewMode('2d');
+    setPreviewFailure(null);
   };
   const importProject = async (file?: File) => {
     if (!file) return;
@@ -174,7 +194,7 @@ export default function BulkWorkspace({
   };
   const generate = () => {
     setSelectedId(null);
-    setViewMode('cards');
+    setViewMode('2d');
     setError(null);
     onGenerate({
       rows,
@@ -502,18 +522,19 @@ export default function BulkWorkspace({
             </div>
             {project && (
               <div className="bulk-board-actions">
-                {selectedTile && (
-                  <button
-                    className="button secondary"
-                    onClick={() => onEdit(selectedTile.id, selectedTile.config)}
-                  >
-                    Kachel bearbeiten
-                  </button>
-                )}
+                <button
+                  className="button secondary"
+                  disabled={!selectedTile}
+                  onClick={() => {
+                    if (selectedTile) onEdit(selectedTile.id, selectedTile.config);
+                  }}
+                >
+                  Kachel bearbeiten
+                </button>
                 <button
                   className="button secondary"
                   onClick={() => {
-                    setViewMode('cards');
+                    setViewMode('2d');
                     onShuffle();
                   }}
                 >
@@ -589,18 +610,10 @@ export default function BulkWorkspace({
             <div className="bulk-view-tabs" role="tablist" aria-label="Serienansicht">
               <button
                 role="tab"
-                aria-selected={viewMode === 'cards'}
-                className={viewMode === 'cards' ? 'active' : ''}
-                onClick={() => setViewMode('cards')}
-              >
-                <Hexagon size={14} /> Kachelliste
-              </button>
-              <button
-                role="tab"
                 aria-selected={viewMode === '2d'}
                 className={viewMode === '2d' ? 'active' : ''}
                 disabled={previewLoading}
-                onClick={() => openViewer('2d')}
+                onClick={() => setViewMode('2d')}
               >
                 <Grid3X3 size={14} /> 2D-Draufsicht
               </button>
@@ -609,45 +622,14 @@ export default function BulkWorkspace({
                 aria-selected={viewMode === '3d'}
                 className={viewMode === '3d' ? 'active' : ''}
                 disabled={previewLoading}
-                onClick={() => openViewer('3d')}
+                onClick={() => setViewMode('3d')}
               >
                 <Box size={14} /> 3D-Brett
               </button>
             </div>
           )}
           {project ? (
-            viewMode === 'cards' ? (
-              <div
-                className="bulk-board"
-                style={{ '--bulk-columns': project.columns } as React.CSSProperties}
-              >
-                {orderedTiles.map(({ id, config }, index) => (
-                  <article
-                    className={`bulk-tile-card ${selectedId === id ? 'selected' : ''}`}
-                    key={id}
-                    style={{ '--bulk-column': index % project.columns } as React.CSSProperties}
-                  >
-                    <button
-                      className="bulk-tile-select"
-                      aria-label={`${config.name} auswählen`}
-                      onClick={() => setSelectedId(id)}
-                    >
-                      <span className="bulk-hex-mark">
-                        <Hexagon size={22} />
-                      </span>
-                      <strong>{config.name}</strong>
-                      <small>
-                        {config.paths.fieldCount} Felder · {config.grid.divisions} Raster
-                      </small>
-                      <small className="bulk-seed">{config.seed}</small>
-                    </button>
-                    <button className="button compact full" onClick={() => onEdit(id, config)}>
-                      Kachel bearbeiten
-                    </button>
-                  </article>
-                ))}
-              </div>
-            ) : previewLoading ? (
+            previewLoading ? (
               <div className="bulk-preview-loading" role="status">
                 <LoaderCircle size={20} className="spin" />
                 <span>Kacheln für die Serienansicht werden vorbereitet…</span>
@@ -655,7 +637,13 @@ export default function BulkWorkspace({
             ) : previewError ? (
               <div className="bulk-preview-loading error-text" role="alert">
                 <span>{previewError}</span>
-                <button className="button secondary compact" onClick={() => openViewer(viewMode)}>
+                <button
+                  className="button secondary compact"
+                  onClick={() => {
+                    setPreviewFailure(null);
+                    setPreviewAttempt((attempt) => attempt + 1);
+                  }}
+                >
                   Erneut versuchen
                 </button>
               </div>
@@ -666,6 +654,7 @@ export default function BulkWorkspace({
                 columns={project.columns}
                 selectedId={selectedId}
                 onSelect={setSelectedId}
+                onError={(message) => setPreviewFailure({ key: projectKey, message })}
               />
             ) : null
           ) : (
@@ -682,9 +671,7 @@ export default function BulkWorkspace({
             <p className="bulk-hint">
               {viewMode === '3d'
                 ? 'Rechts ziehen zum Orbitieren · Scrollen zum Zoomen · Kachel anklicken zum Auswählen.'
-                : viewMode === '2d'
-                  ? 'Die 2D-Draufsicht zeigt Landschaft, Feldgrenzen und Tile-Rand. Kachel anklicken zum Auswählen.'
-                  : 'Kachel anklicken zum Auswählen · „Kachel bearbeiten“ öffnet den 3D-Editor.'}{' '}
+                : 'Ziehen zum Verschieben · Mausrad zum Zoomen · Kachel anklicken zum Auswählen.'}{' '}
               Die Anordnung und alle Änderungen werden separat gespeichert.
             </p>
           )}

@@ -833,7 +833,7 @@ describe('whole-series image persistence', () => {
     const config = structuredClone(defaultConfig);
     config.export.size = 128;
     return {
-      version: 3,
+      version: 4,
       seed: 'series-storage',
       rows: 1,
       columns: 1,
@@ -882,6 +882,7 @@ describe('whole-series image persistence', () => {
       { ...payload, version: 2 },
       { ...payload, extra: true },
       { ...payload, project: { ...project, unknown: true } },
+      { ...payload, project: { ...project, version: 3 } },
       { ...payload, png: pngData(256) },
     ])
       expect((await post('/api/series', invalid)).status).toBe(400);

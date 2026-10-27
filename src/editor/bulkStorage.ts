@@ -1,7 +1,11 @@
 import { migrateBulkProject, type BulkProject } from '../core';
 
-export const BULK_STORAGE_KEY = 'hexa-studio-bulk-v3';
-const LEGACY_BULK_STORAGE_KEYS = ['hexa-studio-bulk-v2', 'hexa-studio-bulk-v1'] as const;
+export const BULK_STORAGE_KEY = 'hexa-studio-bulk-v4';
+const LEGACY_BULK_STORAGE_KEYS = [
+  'hexa-studio-bulk-v3',
+  'hexa-studio-bulk-v2',
+  'hexa-studio-bulk-v1',
+] as const;
 
 export function loadStoredBulkProject(
   storage: Pick<Storage, 'getItem'> | null,

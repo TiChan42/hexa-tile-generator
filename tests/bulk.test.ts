@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import * as projectRecipes from '../src/core/project';
+import { boardOrigin } from '../src/core/bulk';
+import { clipPolygon, hexagon, polygonArea, sharedBoundaryLength } from '../src/core/geometry';
 import {
   bulkGenerationOptionsSchema,
   bulkProjectSchema,
@@ -42,7 +44,7 @@ function fixture(): BulkProject {
     return { id: `tile-${index}`, biomeId: 'mosslight' as const, config };
   });
   return {
-    version: 3,
+    version: 4,
     seed: options.seed,
     rows: 2,
     columns: 3,
@@ -60,6 +62,37 @@ function fixture(): BulkProject {
 }
 
 describe('editable bulk collections', () => {
+  it.each([1, 2, 3, 4, 7])(
+    'keeps %i columns in alternating half-height rows with shared edges and no overlaps',
+    (columns) => {
+      const height = Math.sqrt(3);
+      const origins = Array.from({ length: columns * 3 }, (_, index) =>
+        boardOrigin(index, columns),
+      );
+      const polygons = origins.map((origin) =>
+        hexagon().map((point) => ({ x: point.x + origin.x, y: point.y + origin.y })),
+      );
+      for (let index = 0; index < origins.length; index++) {
+        const origin = origins[index]!;
+        const row = Math.floor(index / columns);
+        const column = index % columns;
+        expect(origin.y - row * height).toBeCloseTo(column % 2 === 0 ? 0 : height / 2);
+        if (column > 0) {
+          expect(origin.x - origins[index - 1]!.x).toBe(1.5);
+          expect(sharedBoundaryLength(polygons[index]!, polygons[index - 1]!)).toBeCloseTo(1);
+        }
+        if (row > 0) {
+          expect(origin.y - origins[index - columns]!.y).toBeCloseTo(height);
+          expect(sharedBoundaryLength(polygons[index]!, polygons[index - columns]!)).toBeCloseTo(1);
+        }
+        for (let other = 0; other < index; other++)
+          expect(
+            Math.abs(polygonArea(clipPolygon(polygons[index]!, polygons[other]!))),
+          ).toBeLessThan(1e-8);
+      }
+    },
+  );
+
   it('rebuilds cell-dependent shapes when a shared raster changes and keeps display-only changes intact', () => {
     const project = fixture();
     for (const { config } of project.tiles.slice(0, 2)) {
@@ -175,10 +208,10 @@ describe('editable bulk collections', () => {
     const expectedOrigins = [
       { x: 0, y: 0 },
       { x: 1.5, y: height / 2 },
-      { x: 3, y: height },
+      { x: 3, y: 0 },
       { x: 0, y: height },
       { x: 1.5, y: height * 1.5 },
-      { x: 3, y: height * 2 },
+      { x: 3, y: height },
     ];
     shuffled.order.forEach((id, index) => {
       const tile = shuffled.tiles.find((tile) => tile.id === id)!;
@@ -275,6 +308,58 @@ describe('editable bulk collections', () => {
   });
 
   it.each([1, 2, 3])(
+    'migrates V%i shared noise by saved order without replacing tile edits',
+    (version) => {
+      const current = shuffleBulkProject(setBulkContinuousNoise(fixture(), true));
+      current.tiles[0]!.config.paths.fields = [
+        { id: 'center', cellIds: [], action: 'gold', label: 'Mein Zentrum', heightOffset: 0.1 },
+      ];
+      const { biomeMode, biomeId, ...oldEnvelope } = current;
+      void biomeMode;
+      void biomeId;
+      const legacy = {
+        ...(version === 1 ? oldEnvelope : current),
+        version,
+        tiles: current.tiles.map((tile) => {
+          const index = current.order.indexOf(tile.id);
+          return {
+            id: tile.id,
+            ...(version === 1 ? {} : { biomeId: tile.biomeId }),
+            config: {
+              ...tile.config,
+              terrain: {
+                ...tile.config.terrain,
+                noise: {
+                  ...tile.config.terrain.noise,
+                  origin: {
+                    x: (index % current.columns) * 1.5,
+                    y:
+                      Math.sqrt(3) *
+                      (Math.floor(index / current.columns) + (index % current.columns) / 2),
+                  },
+                },
+              },
+            },
+          };
+        }),
+      };
+      const before = structuredClone(legacy);
+      const migrated = migrateBulkProject(legacy);
+      expect(migrated).toEqual({
+        ...current,
+        tiles: current.tiles.map((tile) => ({
+          ...tile,
+          biomeId: version === 1 ? null : tile.biomeId,
+        })),
+      });
+      expect(legacy).toEqual(before);
+      expect(migrateBulkProject(migrated)).toEqual(migrated);
+      expect(() => bulkProjectSchema.parse({ ...legacy, version: 4 })).toThrow();
+      expect(() => migrateBulkProject({ ...current, version: 3 })).toThrow();
+    },
+  );
+
+  it.each([1, 2, 3, 4])(
     'migrates a version %i envelope and its historical tile schemas without overwriting saves',
     (version) => {
       const current = fixture();
@@ -292,12 +377,12 @@ describe('editable bulk collections', () => {
       expect(migrated.tiles.map(({ config }) => config)).toEqual(
         current.tiles.map(({ config }) => ({ ...config, legacyLayout: true })),
       );
-      expect(migrated.version).toBe(3);
+      expect(migrated.version).toBe(4);
       const entries = new Map([
         [`hexa-studio-bulk-v${version}`, before],
         [BULK_STORAGE_KEY, '{broken'],
       ]);
-      if (version === 3) entries.set(BULK_STORAGE_KEY, before);
+      if (version === 4) entries.set(BULK_STORAGE_KEY, before);
       const storage = {
         getItem: (key: string) => entries.get(key) ?? null,
         setItem: (key: string, value: string) => {

@@ -1325,7 +1325,10 @@ export default function App() {
             <span className="orbit-help">
               <MousePointer2 size={13} />
               <span>
-                Rechts ziehen zum Drehen <i>·</i> Scrollen zum Zoomen
+                {config.camera.mode === 'top'
+                  ? 'Ziehen zum Verschieben'
+                  : 'Rechts ziehen zum Drehen'}{' '}
+                <i>·</i> Scrollen zum Zoomen
               </span>
             </span>
             <span className="scale-marker">
