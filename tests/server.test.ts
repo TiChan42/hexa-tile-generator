@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { deflateSync } from 'node:zlib';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { defaultConfig, migrateConfig, parseConfig } from '../src/core/config.js';
+import type { BulkProject } from '../src/core/bulk.js';
 import { createApiHandler } from '../server/api.js';
 import { normalizeModel } from '../server/models.js';
 import { decodePng } from '../server/png.js';
@@ -825,4 +826,73 @@ it('rejects incomplete, unknown and out-of-range editing or action settings', as
   ])
     expect((await post('/api/tiles', { config: invalid, png: pngData() })).status).toBe(400);
   expect(await (await fetch(`${base}/api/tiles`)).json()).toEqual([]);
+});
+
+describe('whole-series image persistence', () => {
+  function series(): BulkProject {
+    const config = structuredClone(defaultConfig);
+    config.export.size = 128;
+    return {
+      version: 3,
+      seed: 'series-storage',
+      rows: 1,
+      columns: 1,
+      continuousNoise: false,
+      uniformGrid: true,
+      uniformBorder: true,
+      biomeMode: 'random',
+      biomeId: 'mosslight',
+      gridTemplate: config.grid,
+      borderTemplate: config.border,
+      tiles: [{ id: 'tile-1', biomeId: null, config }],
+      order: ['tile-1'],
+      shuffleRevision: 0,
+    };
+  }
+
+  it('saves the complete versioned project and overview without overwriting repeated exports', async () => {
+    const project = series();
+    const payload = { version: 1, project, png: pngData() };
+    const response = await post('/api/series', payload);
+    expect(response.status).toBe(201);
+    const saved = (await response.json()) as { path: string; pngUrl: string; existing: boolean };
+    expect(saved.existing).toBe(false);
+    expect(saved.path).toMatch(/^working\/series\/serie-/);
+    expect(JSON.parse(await readFile(join(root, saved.path, 'project.json'), 'utf8'))).toEqual(
+      project,
+    );
+    const png = await fetch(`${base}${saved.pngUrl}`);
+    expect(png.headers.get('content-type')).toBe('image/png');
+    expect(Buffer.from(await png.arrayBuffer())).toEqual(decodePng(payload.png, 128));
+    const json = await fetch(`${base}${saved.pngUrl.replace('gesamtfeld.png', 'project.json')}`);
+    expect(await json.json()).toEqual(project);
+    const again = await post('/api/series', payload);
+    expect(await again.json()).toEqual({ ...saved, existing: true });
+    expect(await (await fetch(`${base}/api/tiles`)).json()).toEqual([]);
+    expect((await fetch(`${base}/api/series`)).status).toBe(405);
+    expect((await post(saved.pngUrl, payload)).status).toBe(405);
+    expect((await fetch(`${base}/api/series/invalid!/gesamtfeld.png`)).status).toBe(400);
+    expect((await fetch(`${base}/api/series/absent/gesamtfeld.png`)).status).toBe(404);
+  });
+
+  it('validates request version, strict project schema, PNG dimensions and every tile export policy', async () => {
+    const project = series();
+    const payload = { version: 1, project, png: pngData() };
+    for (const invalid of [
+      { ...payload, version: 2 },
+      { ...payload, extra: true },
+      { ...payload, project: { ...project, unknown: true } },
+      { ...payload, png: pngData(256) },
+    ])
+      expect((await post('/api/series', invalid)).status).toBe(400);
+    project.tiles[0]!.config.rules.minFieldArea = 0.5;
+    const blocked = await post('/api/series', { ...payload, project });
+    expect(blocked.status).toBe(400);
+    expect((await blocked.json()).error).toMatch(/Prüfregeln blockiert/);
+    project.tiles[0]!.config.rules.exportPolicy = 'warn';
+    expect((await post('/api/series', { ...payload, project })).status).toBe(201);
+    project.tiles[0]!.config.rules.exportPolicy = 'block';
+    project.tiles[0]!.config.paths.fieldCount = 7;
+    expect((await post('/api/series', { ...payload, project })).status).toBe(400);
+  });
 });

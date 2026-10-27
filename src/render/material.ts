@@ -363,3 +363,58 @@ ${TILE_COLOR_GLSL}
   enableInstancePalettes(material);
   return material;
 }
+
+/** Bake the exact unlit shader color, including world noise and path shading, into a GLB atlas. */
+export function createMaterialBakeShader(
+  source: THREE.Material,
+  transform: THREE.Matrix4,
+): THREE.ShaderMaterial | null {
+  if (!(source instanceof THREE.MeshStandardMaterial)) return null;
+  const bindings = materialBindings.get(source);
+  if (!bindings) return null;
+  const material = new THREE.ShaderMaterial({
+    uniforms: {
+      ...THREE.UniformsUtils.clone(bindings),
+      tileBakeTransform: { value: transform.clone() },
+      tileBaseColor: { value: source.color.clone() },
+    },
+    vertexShader: `
+      attribute vec3 color;
+      attribute float tilePathWeight;
+      attribute float tileBorderDistance;
+      attribute vec2 bakePosition;
+      uniform mat4 tileBakeTransform;
+      uniform vec2 tileNoiseOrigin;
+      varying vec3 vBaseColor;
+      varying vec3 vTilePosition;
+      varying float vTilePathWeight;
+      varying float vTileBorderDistance;
+      void main() {
+        vBaseColor=color;
+        vTilePosition=(tileBakeTransform*vec4(position,1.0)).xyz+vec3(tileNoiseOrigin.x,0.0,tileNoiseOrigin.y);
+        vTilePathWeight=tilePathWeight;
+        vTileBorderDistance=tileBorderDistance;
+        gl_Position=vec4(bakePosition*2.0-1.0,0.0,1.0);
+      }
+    `,
+    fragmentShader: `
+      ${MATERIAL_GLSL}
+      uniform vec3 tileBaseColor;
+      varying vec3 vBaseColor;
+      void main() {
+        vec4 diffuseColor=vec4(vBaseColor*tileBaseColor,1.0);
+        ${TILE_COLOR_GLSL}
+        gl_FragColor=sRGBTransferOETF(vec4(clamp(diffuseColor.rgb,0.0,1.0),1.0));
+      }
+    `,
+    side: THREE.DoubleSide,
+    depthTest: false,
+    depthWrite: false,
+    toneMapped: false,
+  });
+  Object.assign(material.defaultAttributeValues, {
+    tilePathWeight: [0],
+    tileBorderDistance: [0],
+  });
+  return material;
+}

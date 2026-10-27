@@ -25,6 +25,7 @@ import {
 import { rasterGridSegments, rasterLineGeometry, rasterSubgridSegments } from './grid';
 import { ASSET_LIBRARY, syncModelSlots, voxelGeometry, type VoxelModel } from './voxels';
 import { projectionRay, pickTileSurface, isSelectionClick } from './picking';
+import { boardCamera, exportGlb, snapshotContent } from './modelExport';
 import { setInstancePalettes } from './objectPalettes';
 import { buildPathAccents } from './pathAccents';
 
@@ -649,6 +650,72 @@ export class TileRenderer {
       modelGeometryBuilds: this.modelGeometryBuilds,
       surfaceRevision: this.surfaceRevision,
     };
+  }
+
+  exportGlb(content: THREE.Group): Promise<Blob> {
+    return exportGlb(content, this.renderer);
+  }
+
+  snapshotForExport(x = 0, z = 0): THREE.Group {
+    const config = this.config;
+    if (!config) throw new Error('Noch keine Kachel zum Exportieren vorhanden.');
+    const group = snapshotContent(this.content, (material) => {
+      if (material === this.terrainMaterial || material === this.voxelMaterial) {
+        const terrain = material === this.terrainMaterial;
+        return createTileMaterial(
+          { vertexColors: true, roughness: 1, side: material.side },
+          config.terrain.texture,
+          config.terrain.grain * (terrain ? 1 : 0.4),
+          config.terrain.noise.seed,
+          terrain ? config.paths.detail : { centerLight: 0, edgeShade: 0 },
+          { x: config.terrain.noise.origin.x - x, y: config.terrain.noise.origin.y - z },
+        );
+      }
+      return material.clone();
+    });
+    group.name = config.name;
+    group.userData.renderStyleVersion = RENDER_STYLE_VERSION;
+    group.children[0]!.name = 'Terrain und Spielfelder';
+    group.position.set(x, 0, z);
+    return group;
+  }
+
+  async exportBoardPng(
+    board: THREE.Group,
+    size: number,
+    transparent: boolean,
+    view: TileConfig['camera'],
+  ): Promise<Blob> {
+    const scene = new THREE.Scene();
+    scene.background = transparent ? null : new THREE.Color('#eeede4');
+    this.scene.children.forEach((child) => {
+      if (child instanceof THREE.Light) scene.add(child.clone());
+    });
+    const previousParent = board.parent;
+    scene.add(board);
+    const previousPixelRatio = this.renderer.getPixelRatio();
+    try {
+      const camera = boardCamera(board, view);
+      this.exporting = true;
+      this.renderer.setPixelRatio(1);
+      this.renderer.setSize(size, size, false);
+      this.renderer.setClearAlpha(transparent ? 0 : 1);
+      this.renderer.render(scene, camera);
+      return await new Promise<Blob>((resolve, reject) =>
+        this.canvas.toBlob(
+          (blob) => (blob ? resolve(blob) : reject(new Error('Gesamtbild-Export fehlgeschlagen.'))),
+          'image/png',
+        ),
+      );
+    } finally {
+      board.removeFromParent();
+      previousParent?.add(board);
+      this.exporting = false;
+      this.renderer.setPixelRatio(previousPixelRatio);
+      this.renderer.setSize(this.width, this.height, false);
+      this.renderer.setClearAlpha(0);
+      this.resize();
+    }
   }
 
   async exportPng(

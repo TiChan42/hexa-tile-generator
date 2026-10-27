@@ -6,6 +6,7 @@ import { join, resolve } from 'node:path';
 import type { Plugin } from 'vite';
 import { z, ZodError } from 'zod';
 import { configSchema } from '../src/core/config.js';
+import { bulkProjectSchema } from '../src/core/bulk.js';
 import { generateTile } from '../src/core/generate.js';
 import { getExportRuleIssues } from '../src/core/rules.js';
 import type { GeneratedTile } from '../src/core/types.js';
@@ -16,6 +17,9 @@ const MAX_BODY_BYTES = 100 * 1024 * 1024;
 const identifier = /^[a-z0-9][a-z0-9-]{0,119}$/;
 const modelIdentifier = /^[a-zA-Z0-9][a-zA-Z0-9-]{0,119}$/;
 const tileRequest = z.object({ config: z.unknown(), png: z.unknown() }).strict();
+const seriesRequest = z
+  .object({ version: z.literal(1), project: bulkProjectSchema, png: z.unknown() })
+  .strict();
 
 class HttpError extends Error {
   constructor(
@@ -133,7 +137,7 @@ async function persistTile(
   value: unknown,
 ): Promise<TileManifest & { existing: boolean }> {
   const request = tileRequest.parse(value);
-  // Saving couples an already-rendered PNG to its exact current-format configuration (schema 13 / generator 13.0.0).
+  // Saving couples an already-rendered PNG to its exact current-format configuration (schema 15 / generator 15.0.0).
   // Legacy imports must be migrated and rendered in the editor before this endpoint.
   const config = configSchema.parse(request.config);
   const png = decodePng(request.png, config.export.size);
@@ -194,6 +198,50 @@ async function persistTile(
       return { ...existing, existing: true };
     }
     return { ...manifest, existing: false };
+  } finally {
+    await rm(staging, { recursive: true, force: true });
+  }
+}
+
+async function persistSeries(root: string, value: unknown) {
+  const { project, png: suppliedPng } = seriesRequest.parse(value);
+  const first = project.tiles.find((tile) => tile.id === project.order[0])!.config;
+  const png = decodePng(suppliedPng, first.export.size);
+  for (const item of project.tiles) {
+    if (item.config.rules.exportPolicy !== 'block') continue;
+    let tile: GeneratedTile;
+    try {
+      tile = generateTile(item.config);
+    } catch (error) {
+      throw new HttpError(
+        400,
+        `Export nicht möglich: ${error instanceof Error ? error.message : 'Ungültige Geometrie.'}`,
+      );
+    }
+    const issues = getExportRuleIssues(item.config, tile);
+    if (issues.length)
+      throw new HttpError(
+        400,
+        `${item.config.name}: Export durch Prüfregeln blockiert. ${issues.map((issue) => issue.message).join(' ')}`,
+      );
+  }
+  const projectJson = `${JSON.stringify(project, null, 2)}\n`;
+  const id = `serie-${slug(project.seed).slice(0, 60)}-${digest(projectJson).slice(0, 16)}-${digest(png).slice(0, 12)}`;
+  const directory = join(root, 'working', 'series');
+  const target = join(directory, id);
+  const staging = join(directory, `.staging-${randomUUID()}`);
+  const result = { path: `working/series/${id}`, pngUrl: `/api/series/${id}/gesamtfeld.png` };
+  await mkdir(staging, { recursive: true });
+  try {
+    await writeFile(join(staging, 'project.json'), projectJson, { flag: 'wx' });
+    await writeFile(join(staging, 'gesamtfeld.png'), png, { flag: 'wx' });
+    try {
+      await rename(staging, target);
+    } catch (error) {
+      if (!['EEXIST', 'ENOTEMPTY'].includes(errorCode(error))) throw error;
+      return { ...result, existing: true };
+    }
+    return { ...result, existing: false };
   } finally {
     await rm(staging, { recursive: true, force: true });
   }
@@ -275,6 +323,28 @@ export function createApiHandler(projectRoot: string) {
           return;
         }
         throw new HttpError(405, 'Methode nicht erlaubt.');
+      }
+      if (pathname === '/api/series') {
+        if (request.method !== 'POST') throw new HttpError(405, 'Methode nicht erlaubt.');
+        json(response, 201, await persistSeries(root, await readJson(request)));
+        return;
+      }
+      const seriesMatch = /^\/api\/series\/([^/]+)\/(project\.json|gesamtfeld\.png)$/.exec(
+        pathname,
+      );
+      if (seriesMatch) {
+        if (request.method !== 'GET') throw new HttpError(405, 'Methode nicht erlaubt.');
+        const id = seriesMatch[1]!;
+        if (!identifier.test(id)) throw new HttpError(400, 'Ungültige Serien-ID.');
+        const file = seriesMatch[2]!;
+        const bytes = await readFile(join(root, 'working', 'series', id, file));
+        response.writeHead(200, {
+          'Content-Type': file.endsWith('.png') ? 'image/png' : 'application/json; charset=utf-8',
+          'Cache-Control': 'no-store',
+          'X-Content-Type-Options': 'nosniff',
+        });
+        response.end(bytes);
+        return;
       }
       if (pathname === '/api/models') {
         if (request.method === 'GET') {

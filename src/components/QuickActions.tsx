@@ -1,4 +1,5 @@
 import {
+  Box,
   Check,
   Download,
   Grid3X3,
@@ -49,6 +50,7 @@ interface Props {
   onPlaceObjects: () => void;
   onRemoveObject: () => void;
   onExport: () => void;
+  onExportModel: () => void;
   onSave: () => void;
   onTopView: () => void;
   onImport: () => void;
@@ -198,6 +200,14 @@ export default function QuickActions(props: Props) {
               onClick={props.onExport}
             >
               <Download size={15} /> PNG herunterladen
+            </button>
+            <button
+              className="button secondary full"
+              disabled={props.exportDisabled}
+              onClick={props.onExportModel}
+              title="3D-Modell mit eingebetteten Farben, Texturen und Aktionssymbolen"
+            >
+              <Box size={15} /> 3D-Modell (GLB) herunterladen
             </button>
             <button
               className="button secondary full"
@@ -358,7 +368,7 @@ export default function QuickActions(props: Props) {
           <summary>Prüfregeln</summary>
           <p className="hint">
             Beim Bearbeiten erscheinen nur Warnungen. Die Exportregel bestimmt, ob Regelverstöße den
-            PNG-Export sperren.
+            PNG- und 3D-Export sperren.
           </p>
           <Control label="Mindestfläche (% der Kachel)">
             <input

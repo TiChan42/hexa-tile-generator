@@ -23,7 +23,7 @@ import {
 import type { TileConfig } from '../core/types';
 import type { GeneratedTile } from '../core/types';
 import type { BiomePresetId } from '../core/biomes';
-import type { BulkExportView } from '../editor/bulkArchive';
+import type { BulkExportOption } from '../editor/bulkArchive';
 import BulkSeriesViewer from './BulkSeriesViewer';
 
 interface Props {
@@ -37,7 +37,7 @@ interface Props {
   onEdit: (id: string, config: TileConfig) => void;
   onLoadPreviews: (project: BulkProject) => Promise<Record<string, GeneratedTile>>;
   onShuffle: () => void;
-  onExport: (views: BulkExportView[]) => void;
+  onExport: (views: BulkExportOption[]) => void;
   onSaveWorking: () => void;
   onBack: () => void;
 }
@@ -81,7 +81,7 @@ export default function BulkWorkspace({
     project?.tiles[0]?.config.paths.fieldCount ?? template.paths.fieldCount,
   );
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [exportViews, setExportViews] = useState<BulkExportView[]>(['top']);
+  const [exportViews, setExportViews] = useState<BulkExportOption[]>(['top']);
   const [viewMode, setViewMode] = useState<'cards' | '2d' | '3d'>('cards');
   const [previewData, setPreviewData] = useState<{
     key: string;
@@ -191,7 +191,7 @@ export default function BulkWorkspace({
     });
   };
   const selectedTile = project?.tiles.find((tile) => tile.id === selectedId);
-  const toggleExportView = (view: BulkExportView, enabled: boolean) =>
+  const toggleExportView = (view: BulkExportOption, enabled: boolean) =>
     setExportViews((current) =>
       enabled
         ? [...current, view].filter((value, index, values) => values.indexOf(value) === index)
@@ -539,7 +539,7 @@ export default function BulkWorkspace({
                   className="button secondary"
                   disabled={!!exportProgress}
                   onClick={onSaveWorking}
-                  title="PNG mit der gespeicherten Kameraansicht je Kachel im Working-Ordner speichern"
+                  title="Kachel-PNGs und Gesamtbild mit der gespeicherten Kameraansicht im Working-Ordner speichern"
                 >
                   {exportProgress?.mode === 'working' ? (
                     <>
@@ -558,11 +558,11 @@ export default function BulkWorkspace({
           {project && (
             <div className="bulk-export-picker">
               <div className="bulk-export-picker-heading">
-                <strong>Ansichten im ZIP</strong>
+                <strong>Exportinhalt im ZIP</strong>
                 <small>
-                  {exportViews.length > 1
-                    ? 'Mehrere Ansichten werden je Kachel in einem Unterordner abgelegt.'
-                    : 'Standard: einzelne Draufsicht-PNGs direkt im ZIP.'}
+                  Einzelkacheln und Gesamtfeld; jede gewählte Bildansicht enthält auch ein
+                  Gesamtbild. GLB enthält Einzelmodelle und das zusammengesetzte Brett mit Farben
+                  und Texturen. Gesamtbilder verwenden die Bildeinstellungen der ersten Kachel.
                 </small>
               </div>
               <div className="bulk-export-views" role="group" aria-label="Exportansichten">
@@ -570,6 +570,7 @@ export default function BulkWorkspace({
                   { id: 'top' as const, label: 'Draufsicht', Icon: Grid3X3 },
                   { id: 'orbit' as const, label: '3D-Ansicht', Icon: Box },
                   { id: 'perspective' as const, label: 'Perspektive', Icon: Move3D },
+                  { id: 'model' as const, label: '3D-Modell (GLB)', Icon: Hexagon },
                 ].map(({ id, label, Icon }) => (
                   <label className="bulk-export-view" key={id}>
                     <input

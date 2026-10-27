@@ -63,7 +63,15 @@ import BulkWorkspace from './components/BulkWorkspace';
 import { useProject } from './useProject';
 import { useTile } from './useTile';
 import { loadStoredBulkProject, saveStoredBulkProject } from './editor/bulkStorage';
-import { archiveTilePath, PngArchiveWriter, type BulkExportView } from './editor/bulkArchive';
+import {
+  archiveTilePath,
+  archiveBoardPath,
+  PngArchiveWriter,
+  type BulkExportOption,
+} from './editor/bulkArchive';
+import { Group } from 'three';
+import { boardOrigin } from './core/bulk';
+import { disposeExportContent } from './render/modelExport';
 
 const LAYERS = [
   { id: 'grid' as const, title: 'Raster', subtitle: 'Die Grundlage', icon: Grid3X3 },
@@ -686,6 +694,27 @@ export default function App() {
       setBusy(false);
     }
   };
+  const renderModel = async () => {
+    if (!renderer.current || exportDisabled) return;
+    setBusy(true);
+    let snapshot: Group | undefined;
+    try {
+      renderer.current.update(tile, config, []);
+      snapshot = renderer.current.snapshotForExport();
+      downloadBlob(
+        await renderer.current.exportGlb(snapshot),
+        `${config.name}-${config.seed.replace(/[^a-z\d_-]/gi, '_')}.glb`,
+      );
+      notify('3D-Modell als GLB exportiert.');
+    } catch (error) {
+      notify(error instanceof Error ? error.message : '3D-Export fehlgeschlagen.', true);
+    } finally {
+      if (snapshot) disposeExportContent(snapshot);
+      setBusy(false);
+      const current = latestRender.current;
+      renderer.current?.update(current.tile, current.config, current.selection);
+    }
+  };
   const uploadModel = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = '';
@@ -857,43 +886,66 @@ export default function App() {
     setBulkProject(source);
     setBusy(true);
     setBulkMessage(null);
-    setBulkExportProgress({ done: 0, total: ordered.length, mode: 'working' });
+    setBulkExportProgress({ done: 0, total: ordered.length + 1, mode: 'working' });
+    const board = new Group();
     try {
       const prepared = await prepareBulkTiles(source);
       for (let index = 0; index < prepared.length; index++) {
         const item = prepared[index]!;
         if (!renderer.current) throw new Error('3D-Renderer wurde geschlossen.');
         renderer.current.update(item.tile, item.config, []);
+        const position = boardOrigin(index, source.columns);
+        const snapshot = renderer.current.snapshotForExport(position.x, position.y);
+        snapshot.userData.tileId = item.id;
+        board.add(snapshot);
         const png = await renderer.current.exportPng(
           item.config.export.size,
           item.config.export.transparent,
         );
-        const result = await readResponse<{ path: string; existing: boolean }>(
+        await readResponse<{ path: string; existing: boolean }>(
           await fetch('/api/tiles', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ config: item.config, png: await blobDataUrl(png) }),
           }),
         );
-        setBulkExportProgress({ done: index + 1, total: prepared.length, mode: 'working' });
-        if (index === prepared.length - 1) {
-          const message = `${prepared.length} PNGs im Working-Ordner gespeichert. Letzter Export: ${result.path}`;
-          setBulkMessage({ text: message, error: false });
-          notify(message);
-        }
+        setBulkExportProgress({ done: index + 1, total: prepared.length + 1, mode: 'working' });
       }
+      const first = prepared[0]!.config;
+      const overview = await renderer.current!.exportBoardPng(
+        board,
+        first.export.size,
+        first.export.transparent,
+        first.camera,
+      );
+      const result = await readResponse<{ path: string }>(
+        await fetch('/api/series', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ version: 1, project: source, png: await blobDataUrl(overview) }),
+        }),
+      );
+      setBulkExportProgress({
+        done: prepared.length + 1,
+        total: prepared.length + 1,
+        mode: 'working',
+      });
+      const message = `${prepared.length} Kachel-PNGs und ein Gesamtbild im Working-Ordner gespeichert: ${result.path}`;
+      setBulkMessage({ text: message, error: false });
+      notify(message);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Bulk-Export fehlgeschlagen.';
       setBulkMessage({ text: message, error: true });
       notify(message, true);
     } finally {
+      disposeExportContent(board);
       setBulkExportProgress(null);
       setBusy(false);
       const current = latestRender.current;
       renderer.current?.update(current.tile, current.config, current.selection);
     }
   };
-  const exportBulkZip = async (views: BulkExportView[]) => {
+  const exportBulkZip = async (views: BulkExportOption[]) => {
     if (!bulkProject || !renderer.current || busy || bulkExportProgress || !views.length) return;
     const source = activeBulkTileId
       ? syncBulkTile(bulkProject, activeBulkTileId, config)
@@ -903,33 +955,69 @@ export default function App() {
     setBulkProject(source);
     setBusy(true);
     setBulkMessage(null);
-    setBulkExportProgress({ done: 0, total: ordered.length * distinctViews.length, mode: 'zip' });
+    setBulkExportProgress({
+      done: 0,
+      total: (ordered.length + 1) * distinctViews.length,
+      mode: 'zip',
+    });
     const archiveWriter = new PngArchiveWriter();
+    const board = new Group();
     try {
       const prepared = await prepareBulkTiles(source);
       let done = 0;
       for (let index = 0; index < prepared.length; index++) {
         const item = prepared[index]!;
-        for (const viewMode of distinctViews) {
-          if (!renderer.current) throw new Error('3D-Renderer wurde geschlossen.');
-          renderer.current.update(item.tile, item.config, []);
-          const view = { ...item.config.camera, mode: viewMode };
-          const png = await renderer.current.exportPng(
-            item.config.export.size,
-            item.config.export.transparent,
-            view,
-          );
+        if (!renderer.current) throw new Error('3D-Renderer wurde geschlossen.');
+        renderer.current.update(item.tile, item.config, []);
+        const position = boardOrigin(index, source.columns);
+        const snapshot = renderer.current.snapshotForExport();
+        snapshot.userData.tileId = item.id;
+        board.add(snapshot);
+        for (const option of distinctViews) {
+          const blob =
+            option === 'model'
+              ? await renderer.current.exportGlb(snapshot)
+              : await renderer.current.exportPng(
+                  item.config.export.size,
+                  item.config.export.transparent,
+                  { ...item.config.camera, mode: option },
+                );
           await archiveWriter.add(
-            archiveTilePath(index, item.config.name, viewMode, distinctViews.length > 1),
-            png,
+            archiveTilePath(index, item.config.name, option, distinctViews.length > 1),
+            blob,
           );
           done++;
           setBulkExportProgress({
             done,
-            total: ordered.length * distinctViews.length,
+            total: (ordered.length + 1) * distinctViews.length,
             mode: 'zip',
           });
         }
+        // Individual models keep a local origin; the board follows the visible series order.
+        const positioned = renderer.current.snapshotForExport(position.x, position.y);
+        positioned.userData.tileId = item.id;
+        board.remove(snapshot);
+        disposeExportContent(snapshot);
+        board.add(positioned);
+      }
+      const first = prepared[0]!.config;
+      for (const option of distinctViews) {
+        const blob =
+          option === 'model'
+            ? await renderer.current!.exportGlb(board)
+            : await renderer.current!.exportBoardPng(
+                board,
+                first.export.size,
+                first.export.transparent,
+                { ...first.camera, mode: option },
+              );
+        await archiveWriter.add(archiveBoardPath(option), blob);
+        done++;
+        setBulkExportProgress({
+          done,
+          total: (ordered.length + 1) * distinctViews.length,
+          mode: 'zip',
+        });
       }
       const archive = await archiveWriter.finish();
       const seedSlug = source.seed
@@ -939,7 +1027,7 @@ export default function App() {
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/^-|-$/g, '');
       downloadBlob(archive, `hexastudio-serie-${seedSlug || 'export'}.zip`);
-      const message = `${done} PNG-Ansichten als ZIP heruntergeladen.`;
+      const message = `ZIP mit ${prepared.length} Kacheln und Gesamtfeld heruntergeladen.`;
       setBulkMessage({ text: message, error: false });
       notify(message);
     } catch (error) {
@@ -948,6 +1036,7 @@ export default function App() {
       setBulkMessage({ text: message, error: true });
       notify(message, true);
     } finally {
+      disposeExportContent(board);
       setBulkExportProgress(null);
       setBusy(false);
       const current = latestRender.current;
@@ -1369,6 +1458,7 @@ export default function App() {
           setSelectedObject(null);
         }}
         onExport={() => void renderPng(false)}
+        onExportModel={() => void renderModel()}
         onSave={() => void renderPng(true)}
         onTopView={() =>
           update((draft) => {

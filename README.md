@@ -48,7 +48,11 @@ Die Landschaftsregler für Überstand und hängende Kanten bilden kleine Voxelü
 
 Die Generierung läuft in einem Web Worker. Schnelle Änderungen verwerfen überholte wartende Vorschauen; nur das neueste Ergebnis wird angezeigt. Kameras, Farbtexturen, Feldbeschriftungen und Exportgröße reagieren ohne neue Geometrieerzeugung. Terrain wird zusammengefasst, Voxelobjekte und Kiesel werden instanziert; die Vorschau rendert bedarfsgesteuert mit Pixelfaktor 1, bei erkannten Software-Renderern mit 0,5. PNGs behalten stets ihre volle eingestellte Auflösung.
 
-Darstellungsversion 2 ergänzt gröbere Körnung an dunklen Wegrändern, kleine Kieselgruppen und wenige aufgezeichnete Risse. Terrain und Konturen werden bei Raster-, Aktions- und Objektänderungen wiederverwendet; indizierte Voxelmodelle benötigen ein Drittel weniger Vertices. PNG übernimmt dieselben Oberflächendetails. Generatorrezepte und vorhandene Feldformen bleiben erhalten.
+Darstellungsversion 2 ergänzt gröbere Körnung an dunklen Wegrändern, kleine Kieselgruppen und wenige aufgezeichnete Risse. Terrain und Konturen werden bei Raster-, Aktions- und Objektänderungen wiederverwendet; indizierte Voxelmodelle benötigen ein Drittel weniger Vertices. PNG und GLB übernehmen dieselben Oberflächendetails. Generatorrezepte und vorhandene Feldformen bleiben erhalten.
+
+Der Export-Schritt bietet zusätzlich **3D-Modell (GLB) herunterladen** für die aktuelle Kachel. Im Bulk-Modus lässt sich **3D-Modell (GLB)** neben den Bildansichten auswählen: Das ZIP enthält dann ein Modell je Kachel und `gesamtfeld/modell.glb` mit dem zusammengesetzten Brett. Jede gewählte PNG-Ansicht enthält zusätzlich ein Gesamtbild unter `gesamtfeld/`. **Working speichern** sichert die Einzelbilder sowie das Gesamtbild und die Serienkonfiguration unter `working/series/`.
+
+Das Gesamtfeld folgt der aktuellen Serienreihenfolge und Spaltenzahl. Für Gesamtbilder gelten Auflösung, Transparenz und Kamerawerte der ersten Kachel dieser Reihenfolge; die Kamera passt das vollständige Brett einschließlich Objekten ein. GLB enthält Geometrie, eigene Modelle und eingebettete Aktionssymbole. Feld-, Landschafts- und Voxelfarben sowie die prozeduralen Oberflächentexturen werden einschließlich Farbprofilen und Feldschattierung in eingebettete PNG-Texturen gebacken. Dafür sind keine externen Texturdateien erforderlich. Der GLB-Export ist ein Szenenmodell, keine speziell aufbereitete wasserdichte Druckdatei. Alle Exporte beachten die gewählten Prüfregeln und verändern die gespeicherte Konfiguration nicht.
 
 ## Versionen und vorhandene Projekte
 

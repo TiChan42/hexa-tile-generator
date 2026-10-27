@@ -1,6 +1,7 @@
 import { Zip, ZipPassThrough } from 'fflate';
 
 export type BulkExportView = 'top' | 'orbit' | 'perspective';
+export type BulkExportOption = BulkExportView | 'model';
 
 const VIEW_FILES: Record<BulkExportView, string> = {
   top: 'draufsicht.png',
@@ -11,7 +12,7 @@ const VIEW_FILES: Record<BulkExportView, string> = {
 export function archiveTilePath(
   tileIndex: number,
   tileName: string,
-  view: BulkExportView,
+  view: BulkExportOption,
   multipleViews: boolean,
 ): string {
   const sequence = String(tileIndex + 1).padStart(2, '0');
@@ -23,12 +24,17 @@ export function archiveTilePath(
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-|-$/g, '') || 'kachel';
   const directory = `${sequence}-${slug}`;
+  if (view === 'model') return multipleViews ? `${directory}/modell.glb` : `${directory}.glb`;
   if (multipleViews) return `${directory}/${VIEW_FILES[view]}`;
   const suffix = view === 'top' ? '' : `-${VIEW_FILES[view]!.replace('.png', '')}`;
   return `${directory}${suffix}.png`;
 }
 
-/** Add PNGs incrementally without recompressing payloads or retaining their source Blobs. */
+export function archiveBoardPath(option: BulkExportOption): string {
+  return option === 'model' ? 'gesamtfeld/modell.glb' : `gesamtfeld/${VIEW_FILES[option]}`;
+}
+
+/** Add PNG/GLB payloads incrementally without recompressing or retaining their source Blobs. */
 export class PngArchiveWriter {
   private readonly chunks: BlobPart[] = [];
   private readonly archive: Zip;
@@ -79,7 +85,7 @@ export class PngArchiveWriter {
     this.ended = true;
     if (!this.entryCount) {
       this.archive.terminate();
-      this.rejectArchive(new Error('Der ZIP-Export enthält keine PNG-Dateien.'));
+      this.rejectArchive(new Error('Der ZIP-Export enthält keine PNG- oder GLB-Dateien.'));
       return this.result;
     }
     this.archive.end();

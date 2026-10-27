@@ -6,6 +6,7 @@ import {
   enableInstancePalettes,
   setInstancePalettes,
 } from '../src/render/objectPalettes';
+import { portableModel, snapshotContent } from '../src/render/modelExport';
 
 describe('instanced object palettes and portable colors', () => {
   it.each(['tree', 'pine', 'oak', 'birch', 'willow', 'maple', 'mushrooms', 'rock'])(
@@ -53,6 +54,39 @@ describe('instanced object palettes and portable colors', () => {
       mesh.dispose();
     },
   );
+
+  it('preserves per-instance transforms and baked colors through snapshot and portable export', () => {
+    const geometry = voxelGeometry(ASSET_LIBRARY[0]!);
+    const variants = [
+      { id: 'red', foliage: ['#ff0000', '#aa0000', '#660000'] as [string, string, string] },
+      null,
+    ];
+    setInstancePalettes(geometry, variants);
+    const material = new THREE.MeshStandardMaterial({ vertexColors: true });
+    const mesh = new THREE.InstancedMesh(geometry, material, 2);
+    mesh.setMatrixAt(0, new THREE.Matrix4().makeTranslation(1, 2, 3));
+    mesh.setMatrixAt(1, new THREE.Matrix4().makeTranslation(4, 5, 6));
+    const content = new THREE.Group();
+    content.add(mesh);
+    const snapshot = snapshotContent(content);
+    const cache = new Map<string, THREE.BufferGeometry>();
+    const portable = portableModel(snapshot, cache);
+    const meshes: THREE.Mesh[] = [];
+    portable.traverse((object) => {
+      if (object instanceof THREE.Mesh) meshes.push(object);
+    });
+    expect(meshes).toHaveLength(2);
+    expect(meshes[0]!.matrix.elements.slice(12, 15)).toEqual([1, 2, 3]);
+    expect(meshes[1]!.matrix.elements.slice(12, 15)).toEqual([4, 5, 6]);
+    expect(meshes[0]!.geometry.getAttribute('color').array).not.toEqual(
+      meshes[1]!.geometry.getAttribute('color').array,
+    );
+    expect(mesh.geometry.getAttribute('objectPaletteEnabled')).toBeDefined();
+    cache.forEach((entry) => entry.dispose());
+    geometry.dispose();
+    material.dispose();
+    mesh.dispose();
+  });
 
   it('adds the palette shader without replacing earlier material hooks or their cache keys', () => {
     const material = new THREE.MeshStandardMaterial({ vertexColors: true });
