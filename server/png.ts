@@ -16,7 +16,7 @@ const dataUrl = z
   .max(Math.ceil(MAX_PNG_BYTES / 3) * 4 + 22);
 
 /** Checks the whole chunk envelope; pixel data remains an opaque browser-produced PNG. */
-export function decodePng(value: unknown, size: number): Buffer {
+export function decodePng(value: unknown, size: number, height = size): Buffer {
   const parsed = dataUrl.parse(value);
   const encoded = parsed.slice(22);
   if (!encoded.length || encoded.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded))
@@ -45,7 +45,7 @@ export function decodePng(value: unknown, size: number): Buffer {
         type !== 'IHDR' ||
         length !== 13 ||
         png.readUInt32BE(offset + 8) !== size ||
-        png.readUInt32BE(offset + 12) !== size
+        png.readUInt32BE(offset + 12) !== height
       ) {
         throw new Error('PNG-Abmessungen stimmen nicht mit der Konfiguration überein.');
       }

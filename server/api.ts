@@ -12,6 +12,8 @@ import { getExportRuleIssues } from '../src/core/rules.js';
 import type { GeneratedTile } from '../src/core/types.js';
 import { decodePng } from './png.js';
 import { normalizeModel, readStoredModel, type StoredVoxelModel } from './models.js';
+import { CardApiError, eventCardApi } from './cards.js';
+import { EventGenerationError } from '../src/core/events/index.js';
 
 const MAX_BODY_BYTES = 100 * 1024 * 1024;
 const identifier = /^[a-z0-9][a-z0-9-]{0,119}$/;
@@ -300,6 +302,37 @@ export function createApiHandler(projectRoot: string) {
         if (originHost !== request.headers.host)
           throw new HttpError(403, 'Nur Anfragen vom lokalen Editor sind erlaubt.');
       }
+      if (
+        pathname.startsWith('/api/cards/') ||
+        pathname === '/api/card-projects' ||
+        pathname.startsWith('/api/card-projects/')
+      ) {
+        const result = await eventCardApi(
+          root,
+          pathname,
+          request.method ?? 'GET',
+          request.method === 'POST'
+            ? await readJson(
+                request,
+                pathname === '/api/card-projects' || pathname === '/api/cards/print'
+                  ? 64 * 1024 * 1024
+                  : pathname === '/api/cards/render'
+                    ? 30 * 1024 * 1024
+                    : 2 * 1024 * 1024,
+              )
+            : undefined,
+        );
+        if (!result.contentType) json(response, result.status, result.value);
+        else {
+          response.writeHead(result.status, {
+            'Content-Type': result.contentType,
+            'Cache-Control': 'no-store',
+            'X-Content-Type-Options': 'nosniff',
+          });
+          response.end(result.value as string);
+        }
+        return;
+      }
       if (pathname === '/api/tiles') {
         if (request.method === 'POST') {
           json(response, 201, await persistTile(root, await readJson(request)));
@@ -388,10 +421,16 @@ export function createApiHandler(projectRoot: string) {
         response.end();
         return;
       }
-      if (error instanceof HttpError) json(response, error.status, { error: error.message });
+      if (error instanceof HttpError || error instanceof CardApiError)
+        json(response, error.status, { error: error.message });
+      else if (
+        error instanceof EventGenerationError ||
+        (error instanceof Error && error.message.startsWith('Der Kartentext ist zu lang'))
+      )
+        json(response, 400, { error: error.message });
       else if (error instanceof ZodError)
         json(response, 400, {
-          error: 'Konfiguration oder Modell ist ungültig.',
+          error: 'Übermittelte Daten sind ungültig.',
           details: error.issues
             .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
             .slice(0, 12),

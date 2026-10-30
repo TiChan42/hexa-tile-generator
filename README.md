@@ -11,7 +11,7 @@ npm ci
 npm run dev
 ```
 
-Editor: **http://127.0.0.1:5173**. Es werden keine Cloudkonten oder externen Dienste benötigt. Schriftarten und Modelle liegen lokal im Repo.
+Editor: **http://127.0.0.1:5173**. Der unabhängige Ereigniskarten-Editor ist über **Ereigniskarten** oder **http://127.0.0.1:5173/cards** erreichbar. Es werden keine Cloudkonten oder externen Dienste benötigt. Schriftarten und Modelle liegen lokal im Repo.
 
 Produktionsbetrieb mit funktionierender Working-Ablage:
 
@@ -55,6 +55,10 @@ Darstellungsversion 2 ergänzt gröbere Körnung an dunklen Wegrändern, kleine 
 Der Export-Schritt bietet zusätzlich **3D-Modell (GLB) herunterladen** für die aktuelle Kachel. Im Bulk-Modus lässt sich **3D-Modell (GLB)** neben den Bildansichten auswählen: Das ZIP enthält dann ein Modell je Kachel und `gesamtfeld/modell.glb` mit dem zusammengesetzten Brett. Jede gewählte PNG-Ansicht enthält zusätzlich ein Gesamtbild unter `gesamtfeld/`. **Working speichern** sichert die Einzelbilder sowie das Gesamtbild und die Serienkonfiguration unter `working/series/`.
 
 Das Gesamtfeld folgt der aktuellen Serienreihenfolge und Spaltenzahl mit demselben abwechselnden Spaltenversatz wie die Serienansicht. Für Gesamtbilder gelten Auflösung, Transparenz und Kamerawerte der ersten Kachel dieser Reihenfolge; die Kamera passt das vollständige Brett einschließlich Objekten ein. GLB enthält Geometrie, eigene Modelle und eingebettete Aktionssymbole. Feld-, Landschafts- und Voxelfarben sowie die prozeduralen Oberflächentexturen werden einschließlich Farbprofilen und Feldschattierung in eingebettete PNG-Texturen gebacken. Dafür sind keine externen Texturdateien erforderlich. Der GLB-Export ist ein Szenenmodell, keine speziell aufbereitete wasserdichte Druckdatei. Alle Exporte beachten die gewählten Prüfregeln und verändern die gespeicherte Konfiguration nicht.
+
+## Ereigniskarten
+
+Unter **Ereigniskarten** lassen sich eigenständige Sets mit Alb, Bewegungen, Ressourcen, Kosten und kombinierbaren Effekten erstellen oder seedbasiert würfeln. Ziele nach Zugreihenfolge und Wegentfernung sind getrennt einstellbar. Vorder- und gemeinsame Rückseiten lassen sich als SVG, PNG und doppelseitiger A4-Druckbogen exportieren. Die lokale API erzeugt und speichert Sets unabhängig von Tiles. Details und API-Beispiele: [Ereigniskarten](docs/event-cards.md).
 
 ## Versionen und vorhandene Projekte
 

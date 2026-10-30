@@ -165,3 +165,7 @@ V15 wird vor der Migration gegen sein eingefrorenes Schema ohne Größenprofile 
 ## Globale Aktionsverteilung (Schema 18 / Generator 18.0.0)
 
 V17 und ältere Projektgewichte werden nach strikter historischer Prüfung entfernt; `actions` enthält nur noch `biome` und `revision`. Eine aktuelle API-Konfiguration mit `actions.weights` wird mit HTTP 400 abgewiesen. Migrierte Projekte erhalten `biome: null`. `actionRecipe: 17` friert die initiale V17-Verteilung ein; vorhandenes `actionRecipe: 16` bleibt erhalten. Gespeicherte Feldaktionen und Mengen bleiben unverändert. Neue Kacheln verwenden die globale JSON plus feste Biom-Boni für initiale Aktionen und ausdrückliche Würfe. Neue Autosaves verwenden den v18-Schlüssel; historische Einzelprojekte und Serienkacheln werden ausdrücklich migriert, ohne Originale zu überschreiben.
+
+## Ereigniskarten-API
+
+Der eigenständig versionierte Karteneditor bietet Generierung, SVG-Darstellung, Druckbogen und inhaltsadressierte Speicherung ohne Tile-Konfiguration. Endpunkte, Beispiele, Schema und Spielannahmen stehen unter [Ereigniskarten](event-cards.md).

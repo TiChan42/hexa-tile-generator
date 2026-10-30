@@ -1080,6 +1080,10 @@ export default function App() {
           <span className="version-tag">EDITOR</span>
         </div>
         <div className="header-actions">
+          <a className="subtle-button" href="/cards" aria-label="Ereigniskarten-Editor">
+            <Layers3 size={15} />
+            <span>Ereigniskarten</span>
+          </a>
           {workspaceMode === 'tile' && (
             <button
               className="subtle-button"
