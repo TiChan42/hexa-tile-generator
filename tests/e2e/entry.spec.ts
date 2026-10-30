@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 import { defaultConfig, DECORATION_KINDS } from '../../src/core';
 import { PROJECT_STORAGE_KEY } from '../../src/editor/storage';
 

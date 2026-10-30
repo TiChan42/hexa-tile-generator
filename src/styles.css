@@ -1574,6 +1574,24 @@ select {
 .action-weight-table tbody th {
   font-weight: normal;
 }
+.action-balance-controls {
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+.action-weight-table input {
+  width: 42px;
+  min-width: 0;
+  padding: 5px 3px;
+  font-size: 10px;
+}
+.action-balance-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
 .quick-rules .toggle-row {
   font-size: 10px;
   gap: 8px;

@@ -14,10 +14,10 @@ export function v13MigrationAdditions(source: {
   profiles.mushrooms.enabled = false;
   return {
     legacyLayout: true as const,
-    schemaVersion: 18,
+    schemaVersion: 19,
     actionRecipe: 16,
     actions: { biome: null, revision: source.actions?.revision ?? 0 },
-    generatorVersion: '18.0.0',
+    generatorVersion: '19.0.0',
     terrain: { ...source.terrain, noise: { seed: source.seed, origin: { x: 0, y: 0 } } },
     decoration: {
       ...source.decoration,

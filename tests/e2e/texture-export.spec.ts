@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 import type * as Three from 'three';
 import type * as MaterialModule from '../../src/render/material';
 import type * as ExportModule from '../../src/render/modelExport';

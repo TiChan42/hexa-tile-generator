@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 import type * as Three from 'three';
 import type * as Core from '../../src/core';
 import type * as RendererModule from '../../src/render/TileRenderer';

@@ -199,7 +199,13 @@ export function buildPaths(
       edit?.action ??
       (config.actionRecipe === 16
         ? actions[Math.floor(randomAt(config.seed, 'field-action', group.id) * actions.length)]!
-        : initialFieldAction(config.seed, group.id, config.actions.biome, config.actionRecipe));
+        : initialFieldAction(
+            config.seed,
+            group.id,
+            config.actions.biome,
+            config.actionRecipe,
+            config.actions.distribution,
+          ));
     const field: GameField = {
       id: group.id,
       cellIds: ids,

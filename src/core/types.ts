@@ -1,4 +1,5 @@
 import type { BiomePresetId } from './biomes';
+import type { ActionProbabilities } from './action-probabilities';
 import type { DecorationKind } from './objects';
 import type { ObjectSizeProfiles } from './object-sizes';
 
@@ -55,18 +56,18 @@ export interface MushroomColorProfile {
   cap: [string, string, string];
 }
 export interface TileConfig {
-  schemaVersion: 18;
+  schemaVersion: 19;
   /** Preserve historical initial action recipes when importing older projects. */
   actionRecipe?: 16 | 17;
   /** Preserve V13 raster fragments and automatic output until an explicit rebuild. */
   legacyLayout?: true;
   /** Preserve V14 organic field shapes until an explicit rebuild. */
   layoutVersion?: 14;
-  generatorVersion: '18.0.0';
+  generatorVersion: '19.0.0';
   name: string;
   seed: string;
   editing: { regeneratePathsOnCenterChange: boolean };
-  actions: { biome: BiomePresetId | null; revision: number };
+  actions: { biome: BiomePresetId | null; revision: number; distribution?: ActionProbabilities };
   rules: {
     minFieldArea: number;
     requireFieldConnectivity: boolean;

@@ -106,10 +106,10 @@ describe('seeded object color profiles', () => {
       expect(migrated.config).toEqual({
         ...legacy,
         legacyLayout: true,
-        schemaVersion: 18,
+        schemaVersion: 19,
         actions: defaultConfig.actions,
         actionRecipe: 16,
-        generatorVersion: '18.0.0',
+        generatorVersion: '19.0.0',
         decoration: {
           ...decoration,
           sizeProfiles: defaultConfig.decoration.sizeProfiles,

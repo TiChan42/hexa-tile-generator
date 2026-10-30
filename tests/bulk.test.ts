@@ -8,6 +8,9 @@ import {
   bulkProjectSchema,
   createBulkProject,
   defaultConfig,
+  ACTION_PROBABILITIES,
+  ACTIONS,
+  actionProbabilitiesSchema,
   generateTile,
   migrateBulkProject,
   setBulkContinuousNoise,
@@ -63,6 +66,17 @@ function fixture(): BulkProject {
 }
 
 describe('editable bulk collections', () => {
+  it('captures an edited global distribution in every new series tile', () => {
+    const actionDistribution = actionProbabilitiesSchema.parse(ACTION_PROBABILITIES);
+    for (const { id } of ACTIONS) actionDistribution.baseWeights[id] = id === 'gold' ? 100 : 0;
+    const result = createBulkProject({ ...options, rows: 1, columns: 1, actionDistribution });
+    expect(result.tiles[0]!.config.actions.distribution).toEqual(actionDistribution);
+    expect(
+      result.tiles[0]!.config.paths.fields.filter((field) => field.id !== 'center').every(
+        (field) => field.action === 'gold',
+      ),
+    ).toBe(true);
+  });
   it.each([1, 2, 3, 4, 7])(
     'keeps %i columns in alternating half-height rows with shared edges and no overlaps',
     (columns) => {

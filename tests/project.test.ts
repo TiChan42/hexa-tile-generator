@@ -204,8 +204,8 @@ describe('explicit config migration', () => {
     ];
     const result = migrateConfig(legacy);
     expect(result.migrated).toBe(true);
-    expect(result.config.schemaVersion).toBe(18);
-    expect(result.config.generatorVersion).toBe('18.0.0');
+    expect(result.config.schemaVersion).toBe(19);
+    expect(result.config.generatorVersion).toBe('19.0.0');
     expect(result.config.paths.fields).toEqual(legacy.paths.fields);
     expect(result.config.paths.fieldCount).toBe(legacy.paths.fieldCount);
     expect(result.config.decoration.colorProfiles).toEqual(legacy.decoration.colorProfiles);
@@ -217,9 +217,9 @@ describe('explicit config migration', () => {
       before = JSON.stringify(legacy),
       result = migrateConfig(legacy);
     expect(result.migrated).toBe(true);
-    expect(result.notices[0]).toContain('Generator 18');
-    expect(result.config.schemaVersion).toBe(18);
-    expect(result.config.generatorVersion).toBe('18.0.0');
+    expect(result.notices[0]).toContain('Generator 19');
+    expect(result.config.schemaVersion).toBe(19);
+    expect(result.config.generatorVersion).toBe('19.0.0');
     expect(result.config.center).toEqual({
       shape: 'regular',
       scale: 1,
@@ -244,14 +244,14 @@ describe('explicit config migration', () => {
     expect(result.config.paths.auto).toBe(true);
     expect(result.config.center.offset).toEqual({ x: 0, y: 0 });
     expect(result.config.decoration.density).toBe(0.72);
-    expect(result.notices.join(' ')).toContain('Generator 18');
+    expect(result.notices.join(' ')).toContain('Generator 19');
   });
   it('migrates the frozen v3 format explicitly and rejects unsupported v4 elevation values', () => {
     const source = structuredClone(v3),
       before = JSON.stringify(source),
       result = migrateConfig(source);
     expect(result.migrated).toBe(true);
-    expect(result.config.schemaVersion).toBe(18);
+    expect(result.config.schemaVersion).toBe(19);
     expect(result.config.center.portalWidth).toBe(0.45);
     expect(result.config.paths.heightMode).toBe('flat');
     expect(result.config.paths.fields).toEqual([]);
@@ -404,7 +404,7 @@ describe('lossless V4/V5 migration to stepped walls', () => {
       const before = JSON.stringify(legacy);
       const migration = migrateConfig(legacy);
       expect(migration.migrated).toBe(true);
-      expect(migration.notices.join(' ')).toContain('Projekt auf Generator 18 umgestellt');
+      expect(migration.notices.join(' ')).toContain('Projekt auf Generator 19 umgestellt');
       expect(migration.notices.join(' ')).toContain('unverändert übernommen');
       const { transitionWidth: obsoleteWidth, ...paths } = legacy.paths;
       expect(obsoleteWidth).toBeGreaterThanOrEqual(0.01);
@@ -737,7 +737,7 @@ it('migrates frozen V6 configurations one to one without snapshotting or resetti
     border: defaultConfig.border,
   });
   expect(result.migrated).toBe(true);
-  expect(result.notices.join(' ')).toContain('Projekt auf Generator 18 umgestellt');
+  expect(result.notices.join(' ')).toContain('Projekt auf Generator 19 umgestellt');
   expect(result.notices.join(' ')).toContain('unverändert übernommen');
   expect(JSON.stringify(legacy)).toBe(before);
   expect(generateTile(result.config)).toEqual(generateTile(source));
@@ -810,7 +810,7 @@ it('adds default rules, noise coordinates and disabled color profiles when migra
       exportPolicy: 'block',
     },
   });
-  expect(result.notices.join(' ')).toContain('Projekt auf Generator 18 umgestellt');
+  expect(result.notices.join(' ')).toContain('Projekt auf Generator 19 umgestellt');
   expect(result.notices.join(' ')).toContain('Prüfregeln');
   expect(JSON.stringify(source)).toBe(before);
   result.config.rules.minFieldArea = 0;
@@ -915,7 +915,7 @@ it('migrates V8 with an inactive border, noise coordinates and disabled color pr
     border: { enabled: false, width: 0.015, mode: 'black', color: '#000000' },
   });
   expect(result.migrated).toBe(true);
-  expect(result.notices.join(' ')).toContain('Projekt auf Generator 18 umgestellt');
+  expect(result.notices.join(' ')).toContain('Projekt auf Generator 19 umgestellt');
   expect(result.notices.join(' ')).toContain('gespeicherte Platzierungen bleiben erhalten');
   expect(JSON.stringify(legacy)).toBe(before);
   result.config.border.enabled = true;
@@ -1017,7 +1017,7 @@ it('migrates V9 by adding editing and action defaults without changing any saved
     actions: defaultConfig.actions,
   });
   expect(result.migrated).toBe(true);
-  expect(result.notices.join(' ')).toContain('Projekt auf Generator 18 umgestellt');
+  expect(result.notices.join(' ')).toContain('Projekt auf Generator 19 umgestellt');
   expect(result.notices.join(' ')).toContain('vorhandene Aktionen werden nicht neu ausgewürfelt');
   expect(JSON.stringify(legacy)).toBe(before);
   result.config.actions.biome = 'nebelmoor';

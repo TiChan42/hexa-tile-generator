@@ -4,6 +4,7 @@ import {
   ACTIONS,
   BIOME_PRESETS,
   DEFAULT_ACTION_WEIGHTS,
+  isDefaultActionProbabilities,
   actionProbabilitiesSchema,
   actionWeightsForBiome,
   applyBiomePreset,
@@ -36,6 +37,66 @@ const legacyWeights = {
 };
 
 describe('global action balance and biome buffs', () => {
+  it('captures edited global settings for reproducible rolls and seed recipes without changing geometry', () => {
+    const distribution = actionProbabilitiesSchema.parse(ACTION_PROBABILITIES);
+    for (const { id } of ACTIONS) distribution.baseWeights[id] = id === 'gold' ? 100 : 0;
+    const config = structuredClone(defaultConfig),
+      tile = generateTile(config);
+    const rolled = rollFieldActions(config, tile, distribution);
+    expect(rolled.actions.distribution).toEqual(distribution);
+    expect(rolled.actions.distribution).not.toBe(distribution);
+    expect(rolled.paths.fields.every((field) => field.action === 'gold')).toBe(true);
+    expect(rolled.actions.revision).toBe(1);
+    expect(config.paths.fields).toEqual([]);
+    const output = generateTile(rolled);
+    expect(output.cells).toEqual(tile.cells);
+    expect(
+      output.fields.map(({ action: _action, resourceAmount: _amount, ...geometry }) => {
+        void _action;
+        void _amount;
+        return geometry;
+      }),
+    ).toEqual(
+      tile.fields.map(({ action: _action, resourceAmount: _amount, ...geometry }) => {
+        void _action;
+        void _amount;
+        return geometry;
+      }),
+    );
+    const seeded = createSeededProject('editable-global-balance', { actions: rolled.actions });
+    expect(
+      seeded.paths.fields
+        .filter((field) => field.id !== 'center')
+        .every((field) => field.action === 'gold'),
+    ).toBe(true);
+    expect(configSchema.parse(JSON.parse(JSON.stringify(seeded)))).toEqual(seeded);
+    expect(generateTile(seeded)).toEqual(generateTile(structuredClone(seeded)));
+    distribution.baseWeights.gold = 50;
+    expect(rolled.actions.distribution!.baseWeights.gold).toBe(100);
+    const restored = rollFieldActions(rolled, output, ACTION_PROBABILITIES);
+    expect(restored.actions.distribution).toBeUndefined();
+    expect(isDefaultActionProbabilities(ACTION_PROBABILITIES)).toBe(true);
+    expect(isDefaultActionProbabilities(distribution)).toBe(false);
+    const editedBonus = structuredClone(ACTION_PROBABILITIES);
+    editedBonus.biomeBuffs.mosslight.gold = 2;
+    expect(isDefaultActionProbabilities(editedBonus)).toBe(false);
+    expect(actionWeightsForBiome('mosslight', editedBonus).gold).toBe(36);
+  });
+  it('strictly migrates V18 with its biome, recipes and automatic actions intact', () => {
+    const old = {
+      ...structuredClone(defaultConfig),
+      schemaVersion: 18,
+      generatorVersion: '18.0.0',
+      actions: { biome: 'amethysthain', revision: 8 },
+    };
+    const migrated = migrateConfig(old);
+    expect(migrated.config).toEqual({ ...old, schemaVersion: 19, generatorVersion: '19.0.0' });
+    expect(migrated.migrated).toBe(true);
+    expect(migrated.notices.join(' ')).toContain('reproduzierbare Kopie');
+    expect(() =>
+      migrateConfig({ ...old, actions: { ...old.actions, distribution: ACTION_PROBABILITIES } }),
+    ).toThrow();
+  });
   it('validates one complete JSON source and keeps every nested value immutable', () => {
     expect(actionProbabilitiesSchema.parse(probabilities)).toEqual(ACTION_PROBABILITIES);
     expect(DEFAULT_ACTION_WEIGHTS).toBe(ACTION_PROBABILITIES.baseWeights);
@@ -134,8 +195,8 @@ describe('global action balance and biome buffs', () => {
     expect(result.migrated).toBe(true);
     expect(result.config).toEqual({
       ...old,
-      schemaVersion: 18,
-      generatorVersion: '18.0.0',
+      schemaVersion: 19,
+      generatorVersion: '19.0.0',
       actionRecipe: 17,
       actions: { biome: null, revision: 12 },
     });

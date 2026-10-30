@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { unzipSync, strFromU8 } from 'fflate';
 import { EVENT_STORAGE_KEY } from '../../src/cards/storage';
 import { eventProjectSchema } from '../../src/core/events';

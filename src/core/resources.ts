@@ -1,6 +1,7 @@
 import { randomAt } from './random';
 import { actionWeightsForBiome, sampleFieldAction } from './action-probabilities';
 import type { BiomePresetId } from './biomes';
+import type { ActionProbabilities } from './action-probabilities';
 export { DEFAULT_ACTION_WEIGHTS } from './action-probabilities';
 import type { ActionId } from './types';
 
@@ -48,9 +49,10 @@ export function initialFieldAction(
   fieldId: string,
   biome: BiomePresetId | null = null,
   recipe?: 17,
+  distribution?: ActionProbabilities,
 ): ActionId {
   return sampleFieldAction(
-    recipe === 17 ? V17_ACTION_WEIGHTS : actionWeightsForBiome(biome),
+    recipe === 17 ? V17_ACTION_WEIGHTS : actionWeightsForBiome(biome, distribution),
     randomAt(seed, recipe === 17 ? 'initial-action-v17' : 'initial-action-v18', fieldId),
   );
 }

@@ -130,8 +130,8 @@ describe('resource rewards and exponential rarity', () => {
     expect(migrated.migrated).toBe(true);
     expect(migrated.config).toEqual({
       ...old,
-      schemaVersion: 18,
-      generatorVersion: '18.0.0',
+      schemaVersion: 19,
+      generatorVersion: '19.0.0',
       actionRecipe: 16,
       actions: { biome: null, revision: 0 },
     });

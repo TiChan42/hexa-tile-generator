@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 import {
   ACTION_PROBABILITIES,
   defaultConfig,
@@ -159,17 +159,23 @@ test('global action probabilities apply fixed biome buffs and roll in one undo s
   const quick = page.getByRole('complementary', { name: 'Schnellaktionen' });
   await quick.getByText('Aktionswahrscheinlichkeiten', { exact: true }).click();
   const table = quick.getByRole('table', { name: 'Globale Aktionswahrscheinlichkeiten' });
-  await expect(table.locator('input')).toHaveCount(0);
+  await expect(table.getByLabel('Basisgewicht Gold')).toBeEnabled();
   await expect(quick.getByTestId('action-biome')).toHaveText('Biom: Amethysthain');
-  const baseCells = await table.locator('tbody tr td:first-of-type').allTextContents();
+  const bases = () =>
+    table
+      .locator('tbody tr td:first-of-type input')
+      .evaluateAll((inputs) => inputs.map((input) => (input as HTMLInputElement).value));
+  const baseCells = await bases();
   expect(baseCells).toContain(String(ACTION_PROBABILITIES.baseWeights.rotate));
-  await expect(table.locator('[data-action="amethyst"]')).toContainText('+100 %');
-  await expect(table.locator('[data-action="gem"]')).toContainText('+50 %');
+  await expect(table.locator('[data-action="amethyst"] td:nth-of-type(2) input')).toHaveValue(
+    '100',
+  );
+  await expect(table.locator('[data-action="gem"] td:nth-of-type(2) input')).toHaveValue('50');
   const chances = await table.locator('tbody tr td:last-child').allTextContents();
   const changedSeed = structuredClone(config);
   changedSeed.seed = 'anderer-seed-gleiche-basis';
   await importProject(page, changedSeed);
-  expect(await table.locator('tbody tr td:first-of-type').allTextContents()).toEqual(baseCells);
+  expect(await bases()).toEqual(baseCells);
   expect(await table.locator('tbody tr td:last-child').allTextContents()).toEqual(chances);
   await importProject(page, config);
   const roll = quick.getByRole('button', { name: 'Alle Aktionen würfeln', exact: true });
@@ -218,7 +224,7 @@ test('global action probabilities apply fixed biome buffs and roll in one undo s
   await expect.poll(async () => (await project(page)).actions.biome).toBe('sonnensteppe');
   await page.getByRole('button', { name: /Feldaktionen Dem Spiel/ }).click();
   await quick.getByText('Aktionswahrscheinlichkeiten', { exact: true }).click();
-  expect(await table.locator('tbody tr td:first-of-type').allTextContents()).toEqual(baseCells);
-  await expect(table.locator('[data-action="gold"]')).toContainText('+50 %');
+  expect(await bases()).toEqual(baseCells);
+  await expect(table.locator('[data-action="gold"] td:nth-of-type(2) input')).toHaveValue('50');
   expect((await project(page)).paths.fields).toEqual(centered.paths.fields);
 });

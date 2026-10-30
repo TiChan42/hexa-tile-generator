@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 import type { Page } from '@playwright/test';
 import { unzipSync } from 'fflate';
 import { defaultConfig, generateTile, type BulkProject } from '../../src/core';

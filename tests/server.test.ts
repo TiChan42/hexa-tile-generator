@@ -20,6 +20,11 @@ import frozenV8 from './fixtures/v8.json' with { type: 'json' };
 import frozenV9 from './fixtures/v9.json' with { type: 'json' };
 import { generateTile } from '../src/core/generate.js';
 import { DECORATION_KINDS } from '../src/core/objects.js';
+import {
+  ACTION_PROBABILITIES,
+  actionProbabilitiesSchema,
+} from '../src/core/action-probabilities.js';
+import { readActionProbabilities } from '../server/action-probabilities.js';
 
 function crc32(bytes: Buffer): number {
   let crc = 0xffffffff;
@@ -92,6 +97,101 @@ function post(path: string, value: unknown, headers: Record<string, string> = {}
 }
 
 describe('working artifact API', () => {
+  it('saves global action probabilities atomically and reloads them without a build or server restart', async () => {
+    const initial = (await (await fetch(`${base}/api/action-probabilities`)).json()) as Awaited<
+      ReturnType<typeof readActionProbabilities>
+    >;
+    expect(initial.probabilities).toEqual(ACTION_PROBABILITIES);
+    const probabilities = actionProbabilitiesSchema.parse(ACTION_PROBABILITIES);
+    probabilities.baseWeights.gold = 99;
+    probabilities.biomeBuffs.mosslight.gold = 1.25;
+    const response = await post('/api/action-probabilities', {
+      version: 1,
+      expectedRevision: initial.revision,
+      probabilities,
+    });
+    expect(response.status).toBe(200);
+    const saved = (await response.json()) as typeof initial;
+    expect(saved.probabilities).toEqual(probabilities);
+    expect(saved.revision).not.toBe(initial.revision);
+    expect(await readActionProbabilities(root)).toEqual(saved);
+    expect(await (await fetch(`${base}/api/action-probabilities`)).json()).toEqual(saved);
+    expect(
+      JSON.parse(await readFile(join(root, 'working/settings/action-probabilities.json'), 'utf8')),
+    ).toEqual(probabilities);
+    const stale = await post('/api/action-probabilities', {
+      version: 1,
+      expectedRevision: initial.revision,
+      probabilities: ACTION_PROBABILITIES,
+    });
+    expect(stale.status).toBe(409);
+    expect(await readActionProbabilities(root)).toEqual(saved);
+  });
+  it('serializes concurrent global updates and rejects invalid probabilities without overwriting settings', async () => {
+    const initial = await readActionProbabilities(root);
+    const zero = actionProbabilitiesSchema.parse(ACTION_PROBABILITIES);
+    for (const id of Object.keys(zero.baseWeights) as (keyof typeof zero.baseWeights)[])
+      zero.baseWeights[id] = 0;
+    for (const probabilities of [
+      zero,
+      { ...zero, unexpected: true },
+      { ...ACTION_PROBABILITIES, version: 2 },
+      { ...ACTION_PROBABILITIES, baseWeights: { ...ACTION_PROBABILITIES.baseWeights, gold: -1 } },
+    ])
+      expect(
+        (
+          await post('/api/action-probabilities', {
+            version: 1,
+            expectedRevision: initial.revision,
+            probabilities,
+          })
+        ).status,
+      ).toBe(400);
+    expect(await readActionProbabilities(root)).toEqual(initial);
+    const alternatives = [70, 80].map((gold) => ({
+      ...structuredClone(ACTION_PROBABILITIES),
+      baseWeights: { ...ACTION_PROBABILITIES.baseWeights, gold },
+    }));
+    const responses = await Promise.all(
+      alternatives.map((probabilities) =>
+        post('/api/action-probabilities', {
+          version: 1,
+          expectedRevision: initial.revision,
+          probabilities,
+        }),
+      ),
+    );
+    expect(responses.map((response) => response.status).sort()).toEqual([200, 409]);
+    expect(alternatives).toContainEqual((await readActionProbabilities(root)).probabilities);
+    expect((await fetch(`${base}/api/action-probabilities`, { method: 'DELETE' })).status).toBe(
+      405,
+    );
+    expect(
+      (await post('/api/action-probabilities', {}, { Origin: 'https://external.example' })).status,
+    ).toBe(403);
+    expect(
+      (await fetch(`${base}/api/action-probabilities`, { method: 'POST', body: '{}' })).status,
+    ).toBe(415);
+    expect(
+      (await post('/api/action-probabilities', { padding: 'x'.repeat(128 * 1024) })).status,
+    ).toBe(413);
+  });
+  it('reports a damaged global settings file instead of silently replacing it', async () => {
+    await mkdir(join(root, 'working/settings'), { recursive: true });
+    const path = join(root, 'working/settings/action-probabilities.json');
+    await writeFile(path, '{');
+    expect((await fetch(`${base}/api/action-probabilities`)).status).toBe(500);
+    expect(
+      (
+        await post('/api/action-probabilities', {
+          version: 1,
+          expectedRevision: '0'.repeat(64),
+          probabilities: ACTION_PROBABILITIES,
+        })
+      ).status,
+    ).toBe(500);
+    expect(await readFile(path, 'utf8')).toBe('{');
+  });
   it('writes config + PNG + manifest and reloads without overwriting repeated exports', async () => {
     const config = structuredClone(defaultConfig);
     config.name = '../../Äther & Tile';
@@ -417,7 +517,7 @@ describe('versioned exports and explicit legacy migration', () => {
     const migration = migrateConfig(legacy);
     expect(migration.migrated).toBe(true);
     expect(migration.notices.length).toBeGreaterThan(0);
-    expect(migration.notices.join(' ')).toContain('Generator 18');
+    expect(migration.notices.join(' ')).toContain('Generator 19');
     const migrated = parseConfig(legacy);
     expect(migrated).toEqual(migration.config);
     expect(migrated.center).toEqual({
@@ -428,14 +528,14 @@ describe('versioned exports and explicit legacy migration', () => {
       offset: { x: 0, y: 0 },
       portalWidth: 0.45,
     });
-    expect(migrated.schemaVersion).toBe(18);
-    expect(migrated.generatorVersion).toBe('18.0.0');
+    expect(migrated.schemaVersion).toBe(19);
+    expect(migrated.generatorVersion).toBe('19.0.0');
     expect(migrated.seed).toBe(legacy.seed);
     const saved = await post('/api/tiles', { config: migrated, png: pngData() });
     expect(saved.status).toBe(201);
     const manifest = (await saved.json()) as { id: string; generatorVersion: string };
     expect(manifest.id).not.toBe(id);
-    expect(manifest.generatorVersion).toBe('18.0.0');
+    expect(manifest.generatorVersion).toBe('19.0.0');
     expect(await (await fetch(`${base}/api/tiles/${manifest.id}`)).json()).toEqual(migrated);
     expect(await readFile(join(directory, 'config.json'), 'utf8')).toBe(oldJson);
     expect(await readFile(join(directory, 'tile.png'))).toEqual(oldPng);
@@ -443,7 +543,7 @@ describe('versioned exports and explicit legacy migration', () => {
     const listed = (await (await fetch(`${base}/api/tiles`)).json()) as {
       generatorVersion: string;
     }[];
-    expect(listed.map((entry) => entry.generatorVersion).sort()).toEqual(['1.0.0', '18.0.0']);
+    expect(listed.map((entry) => entry.generatorVersion).sort()).toEqual(['1.0.0', '19.0.0']);
   });
 
   it('rejects legacy or mismatched versions during save instead of pairing an old PNG with changed generator semantics', async () => {
@@ -541,7 +641,7 @@ it('saves current eighteen-kind projects and requires explicit lossless migratio
   const saved = await post('/api/tiles', { config: migrated, png: pngData() });
   expect(saved.status).toBe(201);
   const manifest = (await saved.json()) as { id: string; generatorVersion: string };
-  expect(manifest.generatorVersion).toBe('18.0.0');
+  expect(manifest.generatorVersion).toBe('19.0.0');
   expect(await (await fetch(`${base}/api/tiles/${manifest.id}`)).json()).toEqual(migrated);
   expect(JSON.stringify(legacy)).toBe(before);
   const expanded = structuredClone(migrated);
@@ -577,7 +677,7 @@ it('keeps saved V5 ramp configs byte-identical and stores migrated stepped confi
   const response = await post('/api/tiles', { config: current, png: pngData() });
   expect(response.status).toBe(201);
   const manifest = (await response.json()) as { id: string; generatorVersion: string };
-  expect(manifest.generatorVersion).toBe('18.0.0');
+  expect(manifest.generatorVersion).toBe('19.0.0');
   expect(manifest.id).not.toBe(id);
   expect(await readFile(join(directory, 'config.json'), 'utf8')).toBe(oldJson);
   expect(await readFile(join(directory, 'tile.png'))).toEqual(png);
@@ -634,7 +734,7 @@ it('requires explicit V6 migration and stores the unchanged editable field confi
   const response = await post('/api/tiles', { config: migrated, png: pngData() });
   expect(response.status).toBe(201);
   const manifest = (await response.json()) as { id: string; generatorVersion: string };
-  expect(manifest.generatorVersion).toBe('18.0.0');
+  expect(manifest.generatorVersion).toBe('19.0.0');
   expect(await (await fetch(`${base}/api/tiles/${manifest.id}`)).json()).toEqual(migrated);
   expect(JSON.stringify(legacy)).toBe(before);
 });
@@ -760,7 +860,7 @@ it('requires explicit V8 migration and preserves its rules and placements when s
   const response = await post('/api/tiles', { config: current, png: pngData() });
   expect(response.status).toBe(201);
   const manifest = (await response.json()) as { id: string; generatorVersion: string };
-  expect(manifest.generatorVersion).toBe('18.0.0');
+  expect(manifest.generatorVersion).toBe('19.0.0');
   expect(await (await fetch(`${base}/api/tiles/${manifest.id}`)).json()).toEqual(current);
   expect(JSON.stringify(old)).toBe(before);
 });
@@ -802,7 +902,7 @@ it('requires V9 migration before persisting the biome reference and roll revisio
   const response = await post('/api/tiles', { config, png: pngData() });
   expect(response.status).toBe(201);
   const manifest = (await response.json()) as { id: string; generatorVersion: string };
-  expect(manifest.generatorVersion).toBe('18.0.0');
+  expect(manifest.generatorVersion).toBe('19.0.0');
   expect(await (await fetch(`${base}/api/tiles/${manifest.id}`)).json()).toEqual(config);
   expect(JSON.stringify(legacy)).toBe(before);
 });

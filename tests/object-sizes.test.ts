@@ -220,10 +220,10 @@ describe('biome sizes and strict V16 migration', () => {
     const migrated = migrateConfig(source);
     expect(migrated.config).toEqual({
       ...source,
-      schemaVersion: 18,
+      schemaVersion: 19,
       actions: defaultConfig.actions,
       actionRecipe: 16,
-      generatorVersion: '18.0.0',
+      generatorVersion: '19.0.0',
       decoration: { ...source.decoration, sizeProfiles: defaultObjectSizeProfiles() },
     });
     expect(migrated.notices.join(' ')).toContain('Objektproportionen');

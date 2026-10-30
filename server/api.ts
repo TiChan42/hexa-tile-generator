@@ -14,6 +14,11 @@ import { decodePng } from './png.js';
 import { normalizeModel, readStoredModel, type StoredVoxelModel } from './models.js';
 import { CardApiError, eventCardApi } from './cards.js';
 import { EventGenerationError } from '../src/core/events/index.js';
+import {
+  readActionProbabilities,
+  saveActionProbabilities,
+  ProbabilityConflict,
+} from './action-probabilities.js';
 
 const MAX_BODY_BYTES = 100 * 1024 * 1024;
 const identifier = /^[a-z0-9][a-z0-9-]{0,119}$/;
@@ -302,6 +307,17 @@ export function createApiHandler(projectRoot: string) {
         if (originHost !== request.headers.host)
           throw new HttpError(403, 'Nur Anfragen vom lokalen Editor sind erlaubt.');
       }
+      if (pathname === '/api/action-probabilities') {
+        if (request.method === 'GET') json(response, 200, await readActionProbabilities(root));
+        else if (request.method === 'POST')
+          json(
+            response,
+            200,
+            await saveActionProbabilities(root, await readJson(request, 128 * 1024)),
+          );
+        else throw new HttpError(405, 'Methode nicht erlaubt.');
+        return;
+      }
       if (
         pathname.startsWith('/api/cards/') ||
         pathname === '/api/card-projects' ||
@@ -421,7 +437,8 @@ export function createApiHandler(projectRoot: string) {
         response.end();
         return;
       }
-      if (error instanceof HttpError || error instanceof CardApiError)
+      if (error instanceof ProbabilityConflict) json(response, 409, { error: error.message });
+      else if (error instanceof HttpError || error instanceof CardApiError)
         json(response, error.status, { error: error.message });
       else if (
         error instanceof EventGenerationError ||

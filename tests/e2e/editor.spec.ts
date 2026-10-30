@@ -1,5 +1,5 @@
 import { preV11Materials } from '../fixtures/migration';
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import {
@@ -396,9 +396,9 @@ test('legacy browser projects migrate with an explicit notice and keep their pre
     legacy,
   );
   await page.goto('/');
-  await expect(page.getByRole('status')).toContainText('Projekt auf Generator 18 umgestellt');
+  await expect(page.getByRole('status')).toContainText('Projekt auf Generator 19 umgestellt');
   const migrated = await project(page);
-  expect(migrated.schemaVersion).toBe(18);
+  expect(migrated.schemaVersion).toBe(19);
   expect(migrated.center.shape).toBe('regular');
   expect(migrated.export).toEqual(defaultConfig.export);
   await expect(page.locator('canvas')).toBeVisible();
@@ -515,7 +515,7 @@ for (const version of [4, 5, 6, 7, 8, 9] as const) {
       value: legacy,
     });
     await page.goto('/');
-    await expect(page.getByRole('status')).toContainText('Projekt auf Generator 18 umgestellt');
+    await expect(page.getByRole('status')).toContainText('Projekt auf Generator 19 umgestellt');
     expect(await project(page)).toEqual({ ...expected, actionRecipe: 16 });
     expect(await page.evaluate((key) => JSON.parse(localStorage.getItem(key)!), key)).toEqual(
       legacy,

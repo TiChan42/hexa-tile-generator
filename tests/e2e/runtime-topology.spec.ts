@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { defaultConfig, generateTile } from '../../src/core';
 import type { GeneratedTile, TileConfig } from '../../src/core';
 

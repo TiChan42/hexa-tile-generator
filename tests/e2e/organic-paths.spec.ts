@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 import frozenV13 from '../fixtures/v13.json' with { type: 'json' };
 import frozenV14 from '../fixtures/v14.json' with { type: 'json' };
 import { generateTile } from '../../src/core';
@@ -22,7 +22,7 @@ for (const frozen of [frozenV13, frozenV14]) {
       source,
     );
     await page.goto('/');
-    await expect(page.getByRole('status')).toContainText('Generator 18');
+    await expect(page.getByRole('status')).toContainText('Generator 19');
     const legacy = await project(page);
     expect(legacy.legacyLayout === true || legacy.layoutVersion === 14).toBe(true);
     const before = generateTile(legacy);
@@ -75,7 +75,7 @@ for (const frozen of [frozenV13, frozenV14]) {
         (key) => JSON.parse(localStorage.getItem(key)!).schemaVersion,
         PROJECT_STORAGE_KEY,
       ),
-    ).toBe(18);
+    ).toBe(19);
     await page.getByRole('button', { name: 'Draufsicht', exact: true }).click();
     await page
       .getByTestId('viewport')

@@ -1,6 +1,6 @@
 import { preV18Actions } from '../fixtures/migration';
 import { readFile } from 'node:fs/promises';
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 import { unzipSync } from 'fflate';
 import { bulkProjectSchema, defaultConfig, type BulkProject } from '../../src/core';
 import { BULK_STORAGE_KEY } from '../../src/editor/bulkStorage';
@@ -59,7 +59,7 @@ test('bulk generation, both viewers, tile edits, historical import and PNG ZIP v
     buffer: Buffer.from(JSON.stringify(historical)),
   });
   await expect.poll(async () => (await stored()).tiles[0].config.export.size).toBe(128);
-  expect((await stored()).tiles[0].config.schemaVersion).toBe(18);
+  expect((await stored()).tiles[0].config.schemaVersion).toBe(19);
   await bulk.getByRole('tab', { name: '2D-Draufsicht', exact: true }).click();
   await expect(bulk.locator('.bulk-map-tile')).toHaveCount(2, { timeout: 30000 });
   await bulk.getByRole('tab', { name: '3D-Brett', exact: true }).click();

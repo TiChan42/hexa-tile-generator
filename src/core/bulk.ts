@@ -2,6 +2,8 @@ import { z } from 'zod';
 import { configSchema, migrateConfig } from './config';
 import { BIOME_PRESETS } from './biomes';
 import { createSeededProject } from './project';
+import { actionProbabilitiesSchema } from './action-probabilities';
+import type { ActionProbabilities } from './action-probabilities';
 import { hash32, randomAt } from './random';
 import type { TileConfig } from './types';
 import type { BiomePresetId } from './biomes';
@@ -40,6 +42,7 @@ export interface BulkGenerationOptions {
   gridTemplate: TileConfig['grid'];
   borderTemplate: TileConfig['border'];
   fieldCount: number;
+  actionDistribution?: ActionProbabilities;
 }
 
 export interface BulkProject {
@@ -72,6 +75,7 @@ export const bulkGenerationOptionsSchema = z
     gridTemplate: gridSchema,
     borderTemplate: borderSchema,
     fieldCount: z.number().int().min(7).max(24),
+    actionDistribution: actionProbabilitiesSchema.optional(),
   })
   .strict()
   .refine((options) => options.rows * options.columns <= 49, {
@@ -366,6 +370,9 @@ export function createBulkProject(input: BulkGenerationOptions): BulkProject {
       try {
         config = createSeededProject(tileSeed, {
           fieldCount: options.fieldCount,
+          ...(options.actionDistribution
+            ? { actions: { biome: biomeId, revision: 0, distribution: options.actionDistribution } }
+            : {}),
           ...(options.uniformGrid ? { grid: options.gridTemplate } : {}),
           ...(options.uniformBorder ? { border: options.borderTemplate } : {}),
           ...(options.continuousNoise

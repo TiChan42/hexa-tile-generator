@@ -126,6 +126,9 @@ export function createSeededProject(seed: string, options: SeededProjectOptions 
   config.actions = {
     biome: theme.sizeBiome,
     revision: options.actions?.revision ?? 0,
+    ...(options.actions?.distribution
+      ? { distribution: structuredClone(options.actions.distribution) }
+      : {}),
   };
   config.name = `${theme.name} ${hash32(seed).toString(36).slice(0, 4).toUpperCase()}`;
   config.grid = structuredClone(
@@ -250,7 +253,13 @@ export function createSeededProject(seed: string, options: SeededProjectOptions 
       ? 'event'
       : config.actionRecipe === 16
         ? pick(`action:${field.id}`, actions)
-        : initialFieldAction(seed, field.id, config.actions.biome, config.actionRecipe);
+        : initialFieldAction(
+            seed,
+            field.id,
+            config.actions.biome,
+            config.actionRecipe,
+            config.actions.distribution,
+          );
     return {
       id: field.id,
       cellIds: field.isCenter ? [] : [...field.cellIds],

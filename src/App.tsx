@@ -64,6 +64,8 @@ import QuickActions from './components/QuickActions';
 import BulkWorkspace from './components/BulkWorkspace';
 import { useProject } from './useProject';
 import { useTile } from './useTile';
+import { useActionProbabilities } from './editor/useActionProbabilities';
+import { isDefaultActionProbabilities } from './core/action-probabilities';
 import { loadStoredBulkProject, saveStoredBulkProject } from './editor/bulkStorage';
 import {
   archiveTilePath,
@@ -121,6 +123,10 @@ function blobDataUrl(blob: Blob): Promise<string> {
   });
 }
 export default function App() {
+  const probabilities = useActionProbabilities();
+  const actionDistribution = isDefaultActionProbabilities(probabilities.profile.probabilities)
+    ? undefined
+    : probabilities.profile.probabilities;
   const {
     config,
     update,
@@ -553,7 +559,9 @@ export default function App() {
   const randomizeActions = () => {
     if (busy || !fieldEditable) return;
     try {
-      replace(rollFieldActions(config, tile));
+      if (!probabilities.ready)
+        throw new Error('Die globale Aktionsverteilung ist noch nicht verfügbar.');
+      replace(rollFieldActions(config, tile, probabilities.profile.probabilities));
       notify('Aktionen aller Spielfelder gewürfelt.');
     } catch (error) {
       notify(
@@ -581,6 +589,8 @@ export default function App() {
     if (busy) return;
     setBusy(true);
     try {
+      if (!probabilities.ready)
+        throw new Error('Die globale Aktionsverteilung ist noch nicht verfügbar.');
       const next = await buildProject(seed, {
         camera: config.camera,
         export: config.export,
@@ -591,7 +601,7 @@ export default function App() {
         rules: config.rules,
         border: config.border,
         editing: config.editing,
-        actions: config.actions,
+        actions: { ...config.actions, distribution: actionDistribution },
       });
       if (currentConfig.current !== config) {
         notify(
@@ -820,7 +830,9 @@ export default function App() {
     setBulkGenerating(true);
     setBulkMessage(null);
     try {
-      const project = await buildBulkProject(options);
+      if (!probabilities.ready)
+        throw new Error('Die globale Aktionsverteilung ist noch nicht verfügbar.');
+      const project = await buildBulkProject({ ...options, actionDistribution });
       setBulkProject(project);
       setActiveBulkTileId(null);
       setWorkspaceMode('bulk');
@@ -1420,6 +1432,7 @@ export default function App() {
         </footer>
       </main>
       <QuickActions
+        probabilities={probabilities}
         layer={layer}
         config={config}
         tile={tile}
