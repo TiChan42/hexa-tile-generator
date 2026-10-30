@@ -250,6 +250,7 @@ export function applyBiomePreset(config: TileConfig, id: BiomePresetId): TileCon
   if (!preset) throw new Error(`Unbekanntes Biomprofil „${id}“.`);
   const draft = structuredClone(config),
     allowedSpecies = new Set<DecorationKind>(preset.species);
+  draft.actions.biome = id;
   draft.terrain.gradient = gradient(preset.terrain);
   draft.terrain.wallGradient = gradient(preset.walls);
   draft.paths.gradient = gradient(preset.paths);

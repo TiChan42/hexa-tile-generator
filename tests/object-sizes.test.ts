@@ -64,7 +64,7 @@ describe('species proportions and individual size draws', () => {
       expect(Math.max(...draws)).toBeLessThanOrEqual(profile.scale * (1 + profile.variation));
       expect(objectSizeMultiplier(config, kind, 'object-0')).toBe(draws[0]);
       expect(objectSizeMultiplier(config, kind, 'seed-object:object-0')).toBe(draws[0]);
-      config.actions.weights.event = 0;
+      config.actions.biome = 'mosslight';
       config.actions.revision++;
       config.terrain.scale = 10;
       config.decoration.colorProfiles.trees.enabled = false;
@@ -220,8 +220,10 @@ describe('biome sizes and strict V16 migration', () => {
     const migrated = migrateConfig(source);
     expect(migrated.config).toEqual({
       ...source,
-      schemaVersion: 16,
-      generatorVersion: '16.0.0',
+      schemaVersion: 18,
+      actions: defaultConfig.actions,
+      actionRecipe: 16,
+      generatorVersion: '18.0.0',
       decoration: { ...source.decoration, sizeProfiles: defaultObjectSizeProfiles() },
     });
     expect(migrated.notices.join(' ')).toContain('Objektproportionen');

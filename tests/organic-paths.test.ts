@@ -141,7 +141,7 @@ describe('organic fields and raster-aligned pentagon connections', () => {
     expect(tree.fields.map((field) => field.cellIds)).not.toEqual(
       first.fields.map((field) => field.cellIds),
     );
-    changed.actions.weights.gold = 97;
+    changed.actions.revision = 97;
     changed.terrain.texture.strength = 0.01;
     expect(generateTile(changed).fields).toEqual(tree.fields);
   });
@@ -197,8 +197,8 @@ describe('organic fields and raster-aligned pentagon connections', () => {
       migration = migrateConfig(frozenV13);
     expect(migration.migrated).toBe(true);
     expect(migration.config.legacyLayout).toBe(true);
-    expect(migration.config.schemaVersion).toBe(16);
-    expect(migration.config.generatorVersion).toBe('16.0.0');
+    expect(migration.config.schemaVersion).toBe(18);
+    expect(migration.config.generatorVersion).toBe('18.0.0');
     const config = {
       ...migration.config,
       decoration: { ...migration.config.decoration, enabled: false },

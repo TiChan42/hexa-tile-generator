@@ -143,6 +143,7 @@ describe('minimum figure area and whole pentagon-side ownership', () => {
         id: field.id,
         cellIds: field.isCenter ? [] : field.cellIds,
         action: field.action,
+        ...(field.resourceAmount !== undefined ? { resourceAmount: field.resourceAmount } : {}),
         color: field.color,
         label: field.label,
       }));
@@ -236,6 +237,7 @@ describe('stable unique field IDs across automatic and manual editing', () => {
       id: field.id,
       cellIds: field.isCenter ? [] : field.cellIds,
       action: field.action,
+      ...(field.resourceAmount !== undefined ? { resourceAmount: field.resourceAmount } : {}),
       color: field.color,
       label: field.label,
     }));

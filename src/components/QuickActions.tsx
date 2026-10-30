@@ -13,7 +13,9 @@ import {
   X,
 } from 'lucide-react';
 import type { DecorationPlacement, GameField, GeneratedTile, TileConfig } from '../core/types';
-import { ACTIONS } from '../core/types';
+import { SELECTABLE_ACTIONS } from '../core/types';
+import { ACTION_PROBABILITIES, actionWeightsForBiome } from '../core/action-probabilities';
+import { BIOME_PRESETS } from '../core/biomes';
 import type { RuleIssue } from '../core/rules';
 import type { FieldShapeAxis } from '../core/field-edit';
 import type { Layer, Update } from './Inspector';
@@ -65,8 +67,10 @@ export default function QuickActions(props: Props) {
   const fieldContext =
     props.layer === 'paths' || props.layer === 'actions' || props.layer === 'grid';
   const tileArea = (3 * Math.sqrt(3)) / 2;
-  const actionWeightTotal = Object.values(config.actions.weights).reduce(
-    (total, weight) => total + weight,
+  const actionWeights = actionWeightsForBiome(config.actions.biome);
+  const biome = BIOME_PRESETS.find(({ id }) => id === config.actions.biome);
+  const actionWeightTotal = SELECTABLE_ACTIONS.reduce(
+    (total, action) => total + actionWeights[action.id],
     0,
   );
   return (
@@ -269,7 +273,10 @@ export default function QuickActions(props: Props) {
                   <Shuffle size={15} /> Alle Aktionen würfeln
                 </button>
                 {actionWeightTotal <= 0 && (
-                  <p className="hint">Gib mindestens einer Aktion ein Gewicht größer als 0.</p>
+                  <p className="hint">
+                    In der globalen Verteilung muss mindestens eine Aktion ein positives Gewicht
+                    haben.
+                  </p>
                 )}
               </>
             )}
@@ -291,45 +298,50 @@ export default function QuickActions(props: Props) {
           <details className="quick-rules action-probabilities">
             <summary>Aktionswahrscheinlichkeiten</summary>
             <p className="hint">
-              Die Gewichte werden auf 100 % normiert. 0 schließt eine Aktion aus. Gewürfelt werden
-              alle Felder einschließlich Pentagon; bestehende Formen und Eigenschaften bleiben
-              erhalten.
+              Die Basis gilt global für alle Kacheln. Biom-Boni erhöhen einzelne Gewichte; daraus
+              werden die Chancen auf 100 % normiert. Der Seed bestimmt nur die Ziehung.
             </p>
-            <div className="action-weight-head" aria-hidden="true">
-              <span>Aktion</span>
-              <span>Gewicht</span>
-              <span>Chance</span>
-            </div>
-            {ACTIONS.map((action) => (
-              <div className="action-weight-row" key={action.id}>
-                <label htmlFor={`action-weight-${action.id}`}>{action.label}</label>
-                <input
-                  id={`action-weight-${action.id}`}
-                  type="number"
-                  min={0}
-                  max={100}
-                  step={1}
-                  aria-label={`Wahrscheinlichkeit ${action.label}`}
-                  value={config.actions.weights[action.id]}
-                  disabled={props.busy}
-                  onChange={(event) => {
-                    const value = event.target.valueAsNumber;
-                    if (Number.isFinite(value) && value >= 0 && value <= 100)
-                      props.update((draft) => {
-                        draft.actions.weights[action.id] = value;
-                      });
-                  }}
-                />
-                <span>
-                  {actionWeightTotal > 0
-                    ? `${((100 * config.actions.weights[action.id]) / actionWeightTotal).toFixed(1)} %`
-                    : '–'}
-                </span>
-              </div>
-            ))}
+            <p className="hint" data-testid="action-biome">
+              {biome ? `Biom: ${biome.name}` : 'Ohne Biom-Bonus'}
+            </p>
+            <table className="action-weight-table" aria-label="Globale Aktionswahrscheinlichkeiten">
+              <thead>
+                <tr>
+                  <th scope="col">Aktion</th>
+                  <th scope="col">Basis</th>
+                  <th scope="col">Bonus</th>
+                  <th scope="col">Chance</th>
+                </tr>
+              </thead>
+              <tbody>
+                {SELECTABLE_ACTIONS.map((action) => {
+                  const buff =
+                    config.actions.biome === null
+                      ? 0
+                      : (ACTION_PROBABILITIES.biomeBuffs[config.actions.biome][action.id] ?? 0);
+                  return (
+                    <tr key={action.id} data-action={action.id}>
+                      <th scope="row">{action.label}</th>
+                      <td>{Number(ACTION_PROBABILITIES.baseWeights[action.id].toFixed(3))}</td>
+                      <td>{buff > 0 ? `+${Number((buff * 100).toFixed(1))} %` : '–'}</td>
+                      <td>
+                        {actionWeightTotal > 0
+                          ? `${((100 * actionWeights[action.id]) / actionWeightTotal).toFixed(1)} %`
+                          : '–'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
             <p className="hint">
-              Ziehung {config.actions.revision}. Änderungen an den Gewichten würfeln erst beim
-              Knopfdruck neu.
+              Ressourcenmengen ×1 bis ×9 werden separat gewürfelt: Jede zusätzliche Einheit ist
+              dreimal seltener. Die Standardgewichte machen jede höhere Materialstufe dreimal
+              seltener; Gold wird unabhängig gewichtet.
+            </p>
+            <p className="hint">
+              Ziehung {config.actions.revision}. Alle Felder einschließlich Pentagon werden in einem
+              Schritt gewürfelt; Formen und Eigenschaften bleiben erhalten.
             </p>
           </details>
         )}

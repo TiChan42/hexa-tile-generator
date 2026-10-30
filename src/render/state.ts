@@ -49,6 +49,7 @@ export function renderGeometryKey(
       field.color,
       field.area,
       field.action,
+      field.resourceAmount ?? 1,
       field.isCenter,
     ]),
     tile.center,

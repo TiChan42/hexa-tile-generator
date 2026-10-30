@@ -383,15 +383,16 @@ export class TileRenderer {
       const part = new THREE.PlaneGeometry(size, size);
       part.rotateX(-Math.PI / 2);
       part.translate(center.x, symbolHeight + 0.0045, center.y);
-      let parts = iconParts.get(field.action);
+      const iconKey = `${field.action}:${field.resourceAmount ?? 1}`;
+      let parts = iconParts.get(iconKey);
       if (!parts) {
         parts = [];
-        iconParts.set(field.action, parts);
+        iconParts.set(iconKey, parts);
       }
       parts.push(part);
-      if (!this.iconMaterials.has(field.action)) {
+      if (!this.iconMaterials.has(iconKey)) {
         const material = new THREE.MeshBasicMaterial({
-          map: actionTexture(field.action),
+          map: actionTexture(field.action, field.resourceAmount ?? 1),
           transparent: true,
           depthWrite: false,
           side: THREE.DoubleSide,
@@ -399,7 +400,7 @@ export class TileRenderer {
           polygonOffsetFactor: -2,
           forceSinglePass: true,
         });
-        this.iconMaterials.set(field.action, material);
+        this.iconMaterials.set(iconKey, material);
         this.preservedMaterials.add(material);
       }
     });

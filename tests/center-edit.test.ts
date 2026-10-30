@@ -262,8 +262,7 @@ describe('pure center edits of the visible field layout', () => {
 
   it('keeps newly rolled actions and metadata while the visible preview is still pending', () => {
     const { config, tile } = fixture();
-    for (const id of Object.keys(config.actions.weights) as (keyof typeof config.actions.weights)[])
-      config.actions.weights[id] = id === 'gold' ? 100 : 0;
+    config.actions.biome = 'juwelensteppe';
     const rolled = rollFieldActions(config, tile),
       first = rolled.paths.fields.find((edit) => edit.id !== 'center')!;
     first.label = 'Gerade bearbeitet';
@@ -272,7 +271,15 @@ describe('pure center edits of the visible field layout', () => {
     const draft = prepareCenterEdit(rolled, tile, movedCenter(config)),
       result = generateTile(draft);
     expect(draft.actions).toEqual(rolled.actions);
-    expect(result.fields.every((field) => field.action === 'gold')).toBe(true);
+    expect(
+      result.fields.map(({ id, action, resourceAmount }) => ({ id, action, resourceAmount })),
+    ).toEqual(
+      generateTile(rolled).fields.map(({ id, action, resourceAmount }) => ({
+        id,
+        action,
+        resourceAmount,
+      })),
+    );
     expect(draft.paths.fields.find((edit) => edit.id === first.id)).toMatchObject({
       ...first,
       cellIds: expect.any(Array),

@@ -1,5 +1,10 @@
 import { expect, test } from '@playwright/test';
-import { ACTIONS, defaultConfig, generateTile } from '../../src/core';
+import {
+  ACTION_PROBABILITIES,
+  defaultConfig,
+  generateTile,
+  rollFieldActions,
+} from '../../src/core';
 import type { GameField, GeneratedTile } from '../../src/core';
 import { importProject, project } from './helpers';
 
@@ -128,16 +133,15 @@ for (const kind of ['hex', 'diamond'] as const) {
   });
 }
 
-test('action weights roll every field including the center in one undo step without changing the layout', async ({
+test('global action probabilities apply fixed biome buffs and roll in one undo step', async ({
   page,
 }) => {
   const config = structuredClone(defaultConfig);
   config.camera.mode = 'top';
   config.decoration.enabled = false;
-  for (const action of ACTIONS)
-    config.actions.weights[action.id] = action.id === 'rotate' ? 100 : 0;
-  const initial = generateTile(config);
-  const first = initial.fields.find((field) => !field.isCenter)!;
+  config.actions.biome = 'amethysthain';
+  const initial = generateTile(config),
+    first = initial.fields.find((field) => !field.isCenter)!;
   config.paths.fields = [
     {
       id: first.id,
@@ -153,59 +157,68 @@ test('action weights roll every field including the center in one undo step with
   await page.goto('/');
   await importProject(page, config);
   const quick = page.getByRole('complementary', { name: 'Schnellaktionen' });
-  const roll = quick.getByRole('button', { name: 'Alle Aktionen würfeln', exact: true });
-  await expect(roll).toBeInViewport();
-  await roll.click();
-  await expect.poll(async () => (await project(page)).actions.revision).toBe(1);
-  const rotated = await project(page);
-  expect(rotated.paths.auto).toBe(config.paths.auto);
-  expect(generateTile(rotated).fields.every((field) => field.action === 'rotate')).toBe(true);
-  expect(
-    generateTile(rotated).fields.map(({ action: _action, ...rest }) => {
-      void _action;
-      return rest;
-    }),
-  ).toEqual(
-    before.fields.map(({ action: _action, ...rest }) => {
-      void _action;
-      return rest;
-    }),
-  );
-  expect(rotated.paths.fields.find((edit) => edit.id === first.id)).toEqual({
-    ...config.paths.fields[0],
-    action: 'rotate',
-  });
   await quick.getByText('Aktionswahrscheinlichkeiten', { exact: true }).click();
-  await page.getByLabel('Wahrscheinlichkeit Drehen', { exact: true }).fill('0');
-  await expect(roll).toBeDisabled();
-  await expect(quick).toContainText('mindestens einer Aktion');
-  await expect
-    .poll(async () =>
-      Object.values((await project(page)).actions.weights).reduce((sum, value) => sum + value, 0),
-    )
-    .toBe(0);
-  expect(generateTile(await project(page)).fields.every((field) => field.action === 'rotate')).toBe(
-    true,
-  );
-  await page.getByLabel('Wahrscheinlichkeit Gold', { exact: true }).fill('100');
-  await expect.poll(async () => (await project(page)).actions.weights.gold).toBe(100);
-  const beforeGold = await project(page);
-  await expect(roll).toBeInViewport();
+  const table = quick.getByRole('table', { name: 'Globale Aktionswahrscheinlichkeiten' });
+  await expect(table.locator('input')).toHaveCount(0);
+  await expect(quick.getByTestId('action-biome')).toHaveText('Biom: Amethysthain');
+  const baseCells = await table.locator('tbody tr td:first-of-type').allTextContents();
+  expect(baseCells).toContain(String(ACTION_PROBABILITIES.baseWeights.rotate));
+  await expect(table.locator('[data-action="amethyst"]')).toContainText('+100 %');
+  await expect(table.locator('[data-action="gem"]')).toContainText('+50 %');
+  const chances = await table.locator('tbody tr td:last-child').allTextContents();
+  const changedSeed = structuredClone(config);
+  changedSeed.seed = 'anderer-seed-gleiche-basis';
+  await importProject(page, changedSeed);
+  expect(await table.locator('tbody tr td:first-of-type').allTextContents()).toEqual(baseCells);
+  expect(await table.locator('tbody tr td:last-child').allTextContents()).toEqual(chances);
+  await importProject(page, config);
+  const roll = quick.getByRole('button', { name: 'Alle Aktionen würfeln', exact: true });
   await roll.click();
-  await expect.poll(async () => (await project(page)).actions.revision).toBe(2);
-  const gold = await project(page);
-  expect(generateTile(gold).fields.every((field) => field.action === 'gold')).toBe(true);
-  expect(gold.seed).toBe(config.seed);
+  const expected = rollFieldActions(config, before);
+  await expect.poll(() => project(page)).toEqual(expected);
+  const rolled = generateTile(expected);
+  const geometry = (tile: GeneratedTile) =>
+    tile.fields.map(({ action: _action, resourceAmount: _amount, ...rest }) => {
+      void _action;
+      void _amount;
+      return rest;
+    });
+  expect(geometry(rolled)).toEqual(geometry(before));
   await page.getByLabel('Rückgängig', { exact: true }).click();
-  await expect.poll(() => project(page)).toEqual(beforeGold);
+  await expect.poll(() => project(page)).toEqual(config);
   await page.getByLabel('Wiederholen', { exact: true }).click();
-  await expect.poll(() => project(page)).toEqual(gold);
+  await expect.poll(() => project(page)).toEqual(expected);
   await page.getByRole('button', { name: 'Pentagon einstellen', exact: true }).click();
   await page.getByRole('slider', { name: 'Pentagon-Drehung', exact: true }).press('ArrowRight');
   await expect.poll(async () => (await project(page)).center.rotation).toBe(1);
   const centered = await project(page);
-  expect(generateTile(centered).fields.every((field) => field.action === 'gold')).toBe(true);
-  expect(centered.actions).toEqual(gold.actions);
+  expect(centered.actions).toEqual(expected.actions);
+  expect(
+    Object.fromEntries(
+      centered.paths.fields.map(({ id, action, resourceAmount }) => [
+        id,
+        { action, resourceAmount },
+      ]),
+    ),
+  ).toEqual(
+    Object.fromEntries(
+      expected.paths.fields.map(({ id, action, resourceAmount }) => [
+        id,
+        { action, resourceAmount },
+      ]),
+    ),
+  );
   await page.reload();
   await expect.poll(() => project(page)).toEqual(centered);
+  await expect(page.locator('.main-workspace')).toHaveAttribute('aria-busy', 'false', {
+    timeout: 30000,
+  });
+  await page.getByRole('button', { name: /Landschaft Höhen/ }).click();
+  await page.getByRole('button', { name: 'Biomprofil Sonnensteppe anwenden', exact: true }).click();
+  await expect.poll(async () => (await project(page)).actions.biome).toBe('sonnensteppe');
+  await page.getByRole('button', { name: /Feldaktionen Dem Spiel/ }).click();
+  await quick.getByText('Aktionswahrscheinlichkeiten', { exact: true }).click();
+  expect(await table.locator('tbody tr td:first-of-type').allTextContents()).toEqual(baseCells);
+  await expect(table.locator('[data-action="gold"]')).toContainText('+50 %');
+  expect((await project(page)).paths.fields).toEqual(centered.paths.fields);
 });

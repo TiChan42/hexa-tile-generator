@@ -105,7 +105,10 @@ export function createSeriesRenderer(
     return { ...entry, x: origin.x, z: origin.y };
   });
   const outlineMaterials = new Map<string, THREE.LineBasicMaterial>();
-  const actionEntries = new Map<ActionId, { matrix: THREE.Matrix4; tileId: string }[]>();
+  const actionEntries = new Map<
+    string,
+    { action: ActionId; amount: number; items: { matrix: THREE.Matrix4; tileId: string }[] }
+  >();
   const decorationEntries = new Map<
     string,
     {
@@ -224,9 +227,11 @@ export function createSeriesRenderer(
       transform.rotation.set(0, 0, 0);
       transform.scale.set(size, size, size);
       transform.updateMatrix();
-      const items = actionEntries.get(field.action) ?? [];
-      items.push({ matrix: transform.matrix.clone(), tileId: entry.id });
-      actionEntries.set(field.action, items);
+      const amount = field.resourceAmount ?? 1,
+        key = `${field.action}:${amount}`;
+      const icons = actionEntries.get(key) ?? { action: field.action, amount, items: [] };
+      icons.items.push({ matrix: transform.matrix.clone(), tileId: entry.id });
+      actionEntries.set(key, icons);
     }
 
     if (entry.config.decoration.enabled) {
@@ -254,9 +259,9 @@ export function createSeriesRenderer(
     }
   }
 
-  actionEntries.forEach((items, action) => {
+  actionEntries.forEach(({ items, action, amount }) => {
     const material = new THREE.MeshBasicMaterial({
-      map: actionTexture(action),
+      map: actionTexture(action, amount),
       transparent: true,
       depthWrite: false,
       side: THREE.DoubleSide,

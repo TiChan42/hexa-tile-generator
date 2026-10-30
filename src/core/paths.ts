@@ -6,6 +6,7 @@ import { buildConnections } from './connections';
 import { applyFieldElevation, terracedSymbolAnchor } from './field-elevation';
 import type { FieldCluster } from './fields';
 import { randomAt } from './random';
+import { initialFieldAction, isResource, rollResourceAmount } from './resources';
 import { ensurePathTerrainContrast, sampleGradient } from './color';
 import type {
   CenterSide,
@@ -64,6 +65,9 @@ export function buildPaths(
           touching.flatMap((side) => [...side].map((id) => map.get(id)!.color)),
         ),
       action: centerEdit?.action ?? 'event',
+      ...(centerEdit?.resourceAmount !== undefined && isResource(centerEdit.action)
+        ? { resourceAmount: centerEdit.resourceAmount }
+        : {}),
       label: centerEdit?.label ?? 'Zentrum',
       isCenter: true,
       polygon: centerPolygon,
@@ -191,15 +195,22 @@ export function buildPaths(
     );
     const color = edit?.color ?? ensurePathTerrainContrast(sampledColor, landscapeColors(group));
     const actions = ['rotate', 'shift', 'event', 'shop', 'scrap', 'jump'] as const;
+    const action =
+      edit?.action ??
+      (config.actionRecipe === 16
+        ? actions[Math.floor(randomAt(config.seed, 'field-action', group.id) * actions.length)]!
+        : initialFieldAction(config.seed, group.id, config.actions.biome, config.actionRecipe));
     const field: GameField = {
       id: group.id,
       cellIds: ids,
       center: anchor,
       ...levels,
       color,
-      action:
-        edit?.action ??
-        actions[Math.floor(randomAt(config.seed, 'field-action', group.id) * actions.length)]!,
+      action,
+      ...(isResource(action) &&
+      (edit?.resourceAmount !== undefined || (!edit && config.actionRecipe !== 16))
+        ? { resourceAmount: edit?.resourceAmount ?? rollResourceAmount(config.seed, 0, group.id) }
+        : {}),
       label: edit?.label ?? `Spielfeld ${fields.length}`,
       isCenter: false,
       area: fieldArea(ids, map),

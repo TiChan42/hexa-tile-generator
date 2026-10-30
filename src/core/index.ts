@@ -5,6 +5,8 @@ export * from './object-sizes';
 export * from './config';
 export * from './geometry';
 export * from './random';
+export * from './resources';
+export * from './action-probabilities';
 export * from './color';
 export * from './generate';
 export * from './subgrid';

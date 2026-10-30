@@ -2,6 +2,8 @@ import { z } from 'zod';
 import { DECORATION_KINDS } from './objects';
 import { defaultObjectSizeProfiles } from './object-sizes';
 import { defaultObjectColorProfiles } from './object-colors';
+import { isResource } from './resources';
+import { biomeIdSchema } from './action-probabilities';
 import type { FieldEdit, TileConfig } from './types';
 
 const hex = z.string().regex(/^#[0-9a-fA-F]{6}$/);
@@ -82,6 +84,7 @@ const fieldEdit = z
     id: z.string().min(1).max(100),
     cellIds: z.array(z.string().max(50)).max(3000),
     action,
+    resourceAmount: z.number().int().min(1).max(9).optional(),
     color: hex.optional(),
     label: z.string().max(100).optional(),
     heightOffset: z.number().min(-0.12).max(0.3).optional(),
@@ -95,12 +98,18 @@ const fieldList = (schema: z.ZodType<FieldEdit>) =>
     .refine(
       (fields) => new Set(fields.map((field) => field.id)).size === fields.length,
       'Spielfeld-IDs müssen eindeutig sein.',
+    )
+    .refine(
+      (fields) =>
+        fields.every((field) => field.resourceAmount === undefined || isResource(field.action)),
+      'Nur Ressourcenfelder dürfen eine Ressourcenmenge besitzen.',
     );
 const colorTriplet = z.tuple([hex, hex, hex]);
 export const configSchema = z
   .object({
-    schemaVersion: z.literal(16),
-    generatorVersion: z.literal('16.0.0'),
+    schemaVersion: z.literal(18),
+    generatorVersion: z.literal('18.0.0'),
+    actionRecipe: z.union([z.literal(16), z.literal(17)]).optional(),
     legacyLayout: z.literal(true).optional(),
     layoutVersion: z.literal(14).optional(),
     name: z.string().trim().min(1).max(80),
@@ -108,7 +117,7 @@ export const configSchema = z
     editing: z.object({ regeneratePathsOnCenterChange: z.boolean() }).strict(),
     actions: z
       .object({
-        weights: z.record(action, z.number().finite().min(0).max(100)),
+        biome: biomeIdSchema.nullable(),
         revision: z.number().int().min(0).max(2147483647),
       })
       .strict(),
@@ -305,7 +314,35 @@ export const configSchema = z
   })
   .strict();
 
-const v15Schema = configSchema
+/** Frozen V17 accepts only the historical per-project weights and recipe marker. */
+const v17Schema = configSchema
+  .extend({
+    schemaVersion: z.literal(17),
+    generatorVersion: z.literal('17.0.0'),
+    actionRecipe: z.literal(16).optional(),
+    actions: z
+      .object({
+        weights: z.record(action, z.number().finite().min(0).max(100)),
+        revision: z.number().int().min(0).max(2147483647),
+      })
+      .strict(),
+  })
+  .strict();
+
+/** Frozen V16 rejects V17 reward amounts and recipe settings. */
+const v16Schema = v17Schema
+  .omit({ actionRecipe: true })
+  .extend({
+    schemaVersion: z.literal(16),
+    generatorVersion: z.literal('16.0.0'),
+    paths: configSchema.shape.paths
+      .extend({
+        fields: fieldList(fieldEdit.omit({ resourceAmount: true })),
+      })
+      .strict(),
+  })
+  .strict();
+const v15Schema = v16Schema
   .extend({
     schemaVersion: z.literal(15),
     generatorVersion: z.literal('15.0.0'),
@@ -333,27 +370,13 @@ const v11_1Schema = v13Schema
 const v11_0Schema = v11_1Schema.extend({ generatorVersion: z.literal('11.0.0') }).strict();
 
 export const defaultConfig: TileConfig = {
-  schemaVersion: 16,
-  generatorVersion: '16.0.0',
+  schemaVersion: 18,
+  generatorVersion: '18.0.0',
   name: 'Mooslicht',
   seed: 'mooslicht-42',
   editing: { regeneratePathsOnCenterChange: false },
   actions: {
-    weights: {
-      rotate: 10,
-      shift: 10,
-      event: 20,
-      shop: 10,
-      scrap: 10,
-      jump: 5,
-      alb: 5,
-      amethyst: 5,
-      platinum: 5,
-      gem: 10,
-      gold: 10,
-      custom: 0,
-      none: 0,
-    },
+    biome: null,
     revision: 0,
   },
   rules: {
@@ -510,7 +533,9 @@ const v4Schema = v5Schema
   })
   .strict();
 /** V1–V3 additionally require the existing explicit layout migration. */
-const legacyFields = fieldList(fieldEdit.omit({ heightOffset: true, heightMode: true }));
+const legacyFields = fieldList(
+  fieldEdit.omit({ heightOffset: true, heightMode: true, resourceAmount: true }),
+);
 const v3Schema = v4Schema
   .extend({
     schemaVersion: z.literal(3),
@@ -546,6 +571,11 @@ export interface ConfigMigration {
 function withoutRampWidth(paths: object): Record<string, unknown> {
   return Object.fromEntries(Object.entries(paths).filter(([key]) => key !== 'transitionWidth'));
 }
+function migratedConfig(value: unknown): TileConfig {
+  const record = z.record(z.string(), z.unknown()).parse(value);
+  const actions = z.object({ revision: z.number() }).passthrough().parse(record.actions);
+  return configSchema.parse({ ...record, actions: { biome: null, revision: actions.revision } });
+}
 function currentConfig(value: unknown): TileConfig {
   const record = z.record(z.string(), z.unknown()).parse(value),
     paths = z.record(z.string(), z.unknown()).parse(record.paths),
@@ -553,11 +583,12 @@ function currentConfig(value: unknown): TileConfig {
     decoration = z.record(z.string(), z.unknown()).parse(record.decoration),
     hadDisabledEntrance =
       Array.isArray(paths.enabledSides) && paths.enabledSides.some((enabled) => enabled === false);
-  return configSchema.parse({
+  return migratedConfig({
     ...record,
     legacyLayout: true,
-    schemaVersion: 16,
-    generatorVersion: '16.0.0',
+    actionRecipe: 16,
+    schemaVersion: 18,
+    generatorVersion: '18.0.0',
     terrain: {
       ...terrain,
       noise: terrain.noise ?? { seed: String(record.seed), origin: { x: 0, y: 0 } },
@@ -579,19 +610,61 @@ export function migrateConfig(value: unknown): ConfigMigration {
     typeof value === 'object' &&
     value !== null &&
     'schemaVersion' in value &&
+    value.schemaVersion === 17
+  ) {
+    const previous = v17Schema.parse(value);
+    return {
+      config: migratedConfig({
+        ...previous,
+        schemaVersion: 18,
+        generatorVersion: '18.0.0',
+        actionRecipe: previous.actionRecipe ?? 17,
+      }),
+      migrated: true,
+      notices: [
+        'Projekt auf Generator 18 umgestellt. Aktionsgewichte stammen jetzt aus der globalen JSON; bisherige Projektgewichte entfallen. Gespeicherte Aktionen, Mengen und initiale Aktionsrezepte bleiben erhalten. Biom-Boni gelten nach ausdrücklicher Biomwahl und beim nächsten Aktionswurf.',
+      ],
+    };
+  }
+
+  if (
+    typeof value === 'object' &&
+    value !== null &&
+    'schemaVersion' in value &&
+    value.schemaVersion === 16
+  ) {
+    const previous = v16Schema.parse(value);
+    return {
+      config: migratedConfig({
+        ...previous,
+        schemaVersion: 18,
+        generatorVersion: '18.0.0',
+        actionRecipe: 16,
+      }),
+      migrated: true,
+      notices: [
+        'Projekt auf Generator 18 umgestellt. Neue Symbole zeigen Ressourcenmengen; vorhandene Ressourcen entsprechen ×1. Gespeicherte Felder und bisherige Aktionsrezepte bleiben erhalten; Projektgewichte werden durch die globale JSON ersetzt. Neue Mengen werden erst beim ausdrücklichen Aktionswürfeln verteilt.',
+      ],
+    };
+  }
+  if (
+    typeof value === 'object' &&
+    value !== null &&
+    'schemaVersion' in value &&
     value.schemaVersion === 15
   ) {
     const previous = v15Schema.parse(value);
     return {
-      config: configSchema.parse({
+      config: migratedConfig({
         ...previous,
-        schemaVersion: 16,
-        generatorVersion: '16.0.0',
+        actionRecipe: 16,
+        schemaVersion: 18,
+        generatorVersion: '18.0.0',
         decoration: { ...previous.decoration, sizeProfiles: defaultObjectSizeProfiles() },
       }),
       migrated: true,
       notices: [
-        'Projekt auf Generator 16 umgestellt. Artabhängige Größenprofile passen die Objektproportionen an. Feldformen, Objektpositionen, Drehungen und individuelle Größen bleiben gespeichert. Biome und Größenregler können die neuen Proportionen verändern.',
+        'Projekt auf Generator 18 umgestellt. Artabhängige Größenprofile passen die Objektproportionen an. Feldformen, Objektpositionen, Drehungen und individuelle Größen bleiben gespeichert. Biome und Größenregler können die neuen Proportionen verändern.',
       ],
     };
   }
@@ -603,16 +676,17 @@ export function migrateConfig(value: unknown): ConfigMigration {
   ) {
     const previous = v14Schema.parse(value);
     return {
-      config: configSchema.parse({
+      config: migratedConfig({
         ...previous,
         decoration: { ...previous.decoration, sizeProfiles: defaultObjectSizeProfiles() },
         ...(previous.legacyLayout ? {} : { layoutVersion: 14 }),
-        schemaVersion: 16,
-        generatorVersion: '16.0.0',
+        actionRecipe: 16,
+        schemaVersion: 18,
+        generatorVersion: '18.0.0',
       }),
       migrated: true,
       notices: [
-        'Projekt auf Generator 16 umgestellt. Artabhängige Größenprofile passen die Objektproportionen an; gespeicherte Positionen und individuelle Größen bleiben erhalten. Vorhandene Feldformen bleiben erhalten. „Organisches Wegenetz neu erzeugen“ aktiviert kleinere Felder, variable Randfelder und ein klareres Wegenetz.',
+        'Projekt auf Generator 18 umgestellt. Artabhängige Größenprofile passen die Objektproportionen an; gespeicherte Positionen und individuelle Größen bleiben erhalten. Vorhandene Feldformen bleiben erhalten. „Organisches Wegenetz neu erzeugen“ aktiviert kleinere Felder, variable Randfelder und ein klareres Wegenetz.',
       ],
     };
   }
@@ -624,16 +698,17 @@ export function migrateConfig(value: unknown): ConfigMigration {
   ) {
     const legacy = v13Schema.parse(value);
     return {
-      config: configSchema.parse({
+      config: migratedConfig({
         ...legacy,
         decoration: { ...legacy.decoration, sizeProfiles: defaultObjectSizeProfiles() },
         legacyLayout: true,
-        schemaVersion: 16,
-        generatorVersion: '16.0.0',
+        actionRecipe: 16,
+        schemaVersion: 18,
+        generatorVersion: '18.0.0',
       }),
       migrated: true,
       notices: [
-        'Projekt auf Generator 16 umgestellt. Artabhängige Größenprofile passen die Objektproportionen an; gespeicherte Positionen und individuelle Größen bleiben erhalten. Gespeicherte Felder und Pentagonanschlüsse bleiben im Kompatibilitätsmodus erhalten. „Organisches Wegenetz neu erzeugen“ aktiviert die neue flächige Generierung mit Rasteranschlüssen.',
+        'Projekt auf Generator 18 umgestellt. Artabhängige Größenprofile passen die Objektproportionen an; gespeicherte Positionen und individuelle Größen bleiben erhalten. Gespeicherte Felder und Pentagonanschlüsse bleiben im Kompatibilitätsmodus erhalten. „Organisches Wegenetz neu erzeugen“ aktiviert die neue flächige Generierung mit Rasteranschlüssen.',
       ],
     };
   }
@@ -647,16 +722,17 @@ export function migrateConfig(value: unknown): ConfigMigration {
   ) {
     const legacy = v12Schema.parse(value);
     return {
-      config: configSchema.parse({
+      config: migratedConfig({
         ...legacy,
         decoration: { ...legacy.decoration, sizeProfiles: defaultObjectSizeProfiles() },
         legacyLayout: true,
-        schemaVersion: 16,
-        generatorVersion: '16.0.0',
+        actionRecipe: 16,
+        schemaVersion: 18,
+        generatorVersion: '18.0.0',
       }),
       migrated: true,
       notices: [
-        'Projekt auf Generator 16 umgestellt. Artabhängige Größenprofile passen die Objektproportionen an; gespeicherte Positionen und individuelle Größen bleiben erhalten. Das bisherige Layout bleibt im Kompatibilitätsmodus erhalten. Automatische Spielfelder werden seedbasiert als verzweigtes Wegenetz mit kompakten Feldkernen statt als radiale Streifen aufgebaut. Generierte Feldfarben werden bei Bedarf farblich von der angrenzenden Landschaft abgesetzt; ausdrücklich gespeicherte Farben und Feldformen bleiben erhalten.',
+        'Projekt auf Generator 18 umgestellt. Artabhängige Größenprofile passen die Objektproportionen an; gespeicherte Positionen und individuelle Größen bleiben erhalten. Das bisherige Layout bleibt im Kompatibilitätsmodus erhalten. Automatische Spielfelder werden seedbasiert als verzweigtes Wegenetz mit kompakten Feldkernen statt als radiale Streifen aufgebaut. Generierte Feldfarben werden bei Bedarf farblich von der angrenzenden Landschaft abgesetzt; ausdrücklich gespeicherte Farben und Feldformen bleiben erhalten.',
       ],
     };
   }
@@ -673,7 +749,7 @@ export function migrateConfig(value: unknown): ConfigMigration {
       config: currentConfig(legacy),
       migrated: true,
       notices: [
-        'Projekt auf Generator 16 umgestellt. Artabhängige Größenprofile passen die Objektproportionen an; gespeicherte Positionen und individuelle Größen bleiben erhalten. Das bisherige Layout bleibt im Kompatibilitätsmodus erhalten. Baum- und Pilzfarbprofile wurden ergänzt und bleiben zunächst deaktiviert, damit vorhandene Farben gleich bleiben. Bei neuen Projekten werden die Profile seedbasiert durchmischt; Stämme behalten ihre Modellfarben.',
+        'Projekt auf Generator 18 umgestellt. Artabhängige Größenprofile passen die Objektproportionen an; gespeicherte Positionen und individuelle Größen bleiben erhalten. Das bisherige Layout bleibt im Kompatibilitätsmodus erhalten. Baum- und Pilzfarbprofile wurden ergänzt und bleiben zunächst deaktiviert, damit vorhandene Farben gleich bleiben. Bei neuen Projekten werden die Profile seedbasiert durchmischt; Stämme behalten ihre Modellfarben.',
       ],
     };
   }
@@ -690,7 +766,7 @@ export function migrateConfig(value: unknown): ConfigMigration {
       config: currentConfig(legacy),
       migrated: true,
       notices: [
-        'Projekt auf Generator 16 umgestellt. Artabhängige Größenprofile passen die Objektproportionen an; gespeicherte Positionen und individuelle Größen bleiben erhalten. Das bisherige Layout bleibt im Kompatibilitätsmodus erhalten. Baum- und Pilzfarbprofile wurden ergänzt und bleiben zunächst deaktiviert, damit vorhandene Farben gleich bleiben. Bei neuen Projekten werden die Profile seedbasiert durchmischt; Stämme behalten ihre Modellfarben.',
+        'Projekt auf Generator 18 umgestellt. Artabhängige Größenprofile passen die Objektproportionen an; gespeicherte Positionen und individuelle Größen bleiben erhalten. Das bisherige Layout bleibt im Kompatibilitätsmodus erhalten. Baum- und Pilzfarbprofile wurden ergänzt und bleiben zunächst deaktiviert, damit vorhandene Farben gleich bleiben. Bei neuen Projekten werden die Profile seedbasiert durchmischt; Stämme behalten ihre Modellfarben.',
       ],
     };
   }
@@ -707,7 +783,7 @@ export function migrateConfig(value: unknown): ConfigMigration {
       config: currentConfig(legacy),
       migrated: true,
       notices: [
-        'Projekt auf Generator 16 umgestellt. Artabhängige Größenprofile passen die Objektproportionen an; gespeicherte Positionen und individuelle Größen bleiben erhalten. Das bisherige Layout bleibt im Kompatibilitätsmodus erhalten. Baum- und Pilzfarbprofile wurden ausgeschaltet ergänzt, damit bestehende Farben erhalten bleiben. Die Terrain-Noise-Koordinaten sind jetzt gespeichert, damit Kacheln im Bulk-Modus auf einem gemeinsamen Perlin-Feld liegen können. Bestehende Kacheln behalten ihr bisheriges Terrain durch ihren Seed und den Ursprung 0.',
+        'Projekt auf Generator 18 umgestellt. Artabhängige Größenprofile passen die Objektproportionen an; gespeicherte Positionen und individuelle Größen bleiben erhalten. Das bisherige Layout bleibt im Kompatibilitätsmodus erhalten. Baum- und Pilzfarbprofile wurden ausgeschaltet ergänzt, damit bestehende Farben erhalten bleiben. Die Terrain-Noise-Koordinaten sind jetzt gespeichert, damit Kacheln im Bulk-Modus auf einem gemeinsamen Perlin-Feld liegen können. Bestehende Kacheln behalten ihr bisheriges Terrain durch ihren Seed und den Ursprung 0.',
       ],
     };
   }
@@ -724,7 +800,7 @@ export function migrateConfig(value: unknown): ConfigMigration {
       config: currentConfig(legacy),
       migrated: true,
       notices: [
-        'Projekt auf Generator 16 umgestellt. Artabhängige Größenprofile passen die Objektproportionen an; gespeicherte Positionen und individuelle Größen bleiben erhalten. Das bisherige Layout bleibt im Kompatibilitätsmodus erhalten. Baum- und Pilzfarbprofile wurden ausgeschaltet ergänzt, damit bestehende Farben erhalten bleiben. Terrain-Noise-Koordinaten werden ergänzt, damit Kacheln im Bulk-Modus auf einem gemeinsamen Perlin-Feld liegen können. Bestehende Kacheln behalten ihr Terrain durch ihren bisherigen Seed und den Ursprung 0. Neu erzeugte automatische Wegenetze erhalten kompakte Spielfeldgruppen, geschwungene Verbindungen und zusätzliche Querverzweigungen. Alle sechs Außenseiten erhalten einen festen Eingang. Falls ein älteres Projekt Eingänge deaktiviert hatte, ergänzt die Automatik die fehlenden Feldgruppen; die Deaktivierungsoption entfällt. Gespeicherte Feldformen, Aktionen, Farben, Höhen, Objektplatzierungen und Paletten bleiben erhalten.',
+        'Projekt auf Generator 18 umgestellt. Artabhängige Größenprofile passen die Objektproportionen an; gespeicherte Positionen und individuelle Größen bleiben erhalten. Das bisherige Layout bleibt im Kompatibilitätsmodus erhalten. Baum- und Pilzfarbprofile wurden ausgeschaltet ergänzt, damit bestehende Farben erhalten bleiben. Terrain-Noise-Koordinaten werden ergänzt, damit Kacheln im Bulk-Modus auf einem gemeinsamen Perlin-Feld liegen können. Bestehende Kacheln behalten ihr Terrain durch ihren bisherigen Seed und den Ursprung 0. Neu erzeugte automatische Wegenetze erhalten kompakte Spielfeldgruppen, geschwungene Verbindungen und zusätzliche Querverzweigungen. Alle sechs Außenseiten erhalten einen festen Eingang. Falls ein älteres Projekt Eingänge deaktiviert hatte, ergänzt die Automatik die fehlenden Feldgruppen; die Deaktivierungsoption entfällt. Gespeicherte Feldformen, Aktionen, Farben, Höhen, Objektplatzierungen und Paletten bleiben erhalten.',
       ],
     };
   }
@@ -745,7 +821,7 @@ export function migrateConfig(value: unknown): ConfigMigration {
       }),
       migrated: true,
       notices: [
-        'Projekt auf Generator 16 umgestellt. Artabhängige Größenprofile passen die Objektproportionen an; gespeicherte Positionen und individuelle Größen bleiben erhalten. Das bisherige Layout bleibt im Kompatibilitätsmodus erhalten. Baum- und Pilzfarbprofile wurden ausgeschaltet ergänzt, damit bestehende Farben erhalten bleiben. Ein Noise-Seed aus dem vorhandenen Tile-Seed mit Ursprung 0 wird ergänzt. Einstellungen für Center-Änderungen und gewichtetes Aktionswürfeln wurden ergänzt. Bestehende Felder, Formen, Aktionen, Farben, Höhen, Prüfregeln, Rand, Objektplatzierungen, Paletten und Modellzuordnungen bleiben unverändert. Center-Änderungen erzeugen standardmäßig keinen neuen Wegeplan. Die neuen Gewichte wirken erst beim ausdrücklichen Würfeln; vorhandene Aktionen werden nicht neu ausgewürfelt. Alle sechs Außenseiten erhalten einen festen Eingang. Falls ein älteres Projekt Eingänge deaktiviert hatte, ergänzt die Automatik die fehlenden Feldgruppen; die Deaktivierungsoption entfällt. Vorhandene Dateien bleiben unverändert.',
+        'Projekt auf Generator 18 umgestellt. Artabhängige Größenprofile passen die Objektproportionen an; gespeicherte Positionen und individuelle Größen bleiben erhalten. Das bisherige Layout bleibt im Kompatibilitätsmodus erhalten. Baum- und Pilzfarbprofile wurden ausgeschaltet ergänzt, damit bestehende Farben erhalten bleiben. Ein Noise-Seed aus dem vorhandenen Tile-Seed mit Ursprung 0 wird ergänzt. Einstellungen für Center-Änderungen und gewichtetes Aktionswürfeln wurden ergänzt. Bestehende Felder, Formen, Aktionen, Farben, Höhen, Prüfregeln, Rand, Objektplatzierungen, Paletten und Modellzuordnungen bleiben unverändert. Center-Änderungen erzeugen standardmäßig keinen neuen Wegeplan. Die neuen Gewichte wirken erst beim ausdrücklichen Würfeln; vorhandene Aktionen werden nicht neu ausgewürfelt. Alle sechs Außenseiten erhalten einen festen Eingang. Falls ein älteres Projekt Eingänge deaktiviert hatte, ergänzt die Automatik die fehlenden Feldgruppen; die Deaktivierungsoption entfällt. Vorhandene Dateien bleiben unverändert.',
       ],
     };
   }
@@ -767,7 +843,7 @@ export function migrateConfig(value: unknown): ConfigMigration {
       }),
       migrated: true,
       notices: [
-        'Projekt auf Generator 16 umgestellt. Artabhängige Größenprofile passen die Objektproportionen an; gespeicherte Positionen und individuelle Größen bleiben erhalten. Das bisherige Layout bleibt im Kompatibilitätsmodus erhalten. Baum- und Pilzfarbprofile wurden ausgeschaltet ergänzt, damit bestehende Farben erhalten bleiben. Ein Noise-Seed aus dem vorhandenen Tile-Seed mit Ursprung 0 wird ergänzt. Ein deaktivierter optionaler Außenrand wurde ergänzt, damit die bisherige Ausgabe unverändert bleibt. Alle Felder, Formen, Aktionen, Farben, Höhen, Prüfregeln, Objektplatzierungen, Paletten und Modellzuordnungen wurden unverändert übernommen. Ein später aktivierter Rand blendet nur überlappende Objekte aus; gespeicherte Platzierungen bleiben erhalten und erscheinen nach dem Deaktivieren wieder. Die neuen Aktionsgewichte wirken erst beim ausdrücklichen Würfeln; Center-Änderungen erzeugen standardmäßig keinen neuen Wegeplan. Alle sechs Außenseiten erhalten einen festen Eingang. Falls ein älteres Projekt Eingänge deaktiviert hatte, ergänzt die Automatik die fehlenden Feldgruppen; die Deaktivierungsoption entfällt. Vorhandene Dateien bleiben unverändert.',
+        'Projekt auf Generator 18 umgestellt. Artabhängige Größenprofile passen die Objektproportionen an; gespeicherte Positionen und individuelle Größen bleiben erhalten. Das bisherige Layout bleibt im Kompatibilitätsmodus erhalten. Baum- und Pilzfarbprofile wurden ausgeschaltet ergänzt, damit bestehende Farben erhalten bleiben. Ein Noise-Seed aus dem vorhandenen Tile-Seed mit Ursprung 0 wird ergänzt. Ein deaktivierter optionaler Außenrand wurde ergänzt, damit die bisherige Ausgabe unverändert bleibt. Alle Felder, Formen, Aktionen, Farben, Höhen, Prüfregeln, Objektplatzierungen, Paletten und Modellzuordnungen wurden unverändert übernommen. Ein später aktivierter Rand blendet nur überlappende Objekte aus; gespeicherte Platzierungen bleiben erhalten und erscheinen nach dem Deaktivieren wieder. Die neuen Aktionsgewichte wirken erst beim ausdrücklichen Würfeln; Center-Änderungen erzeugen standardmäßig keinen neuen Wegeplan. Alle sechs Außenseiten erhalten einen festen Eingang. Falls ein älteres Projekt Eingänge deaktiviert hatte, ergänzt die Automatik die fehlenden Feldgruppen; die Deaktivierungsoption entfällt. Vorhandene Dateien bleiben unverändert.',
       ],
     };
   }
@@ -790,7 +866,7 @@ export function migrateConfig(value: unknown): ConfigMigration {
       }),
       migrated: true,
       notices: [
-        'Projekt auf Generator 16 umgestellt. Artabhängige Größenprofile passen die Objektproportionen an; gespeicherte Positionen und individuelle Größen bleiben erhalten. Das bisherige Layout bleibt im Kompatibilitätsmodus erhalten. Baum- und Pilzfarbprofile wurden ausgeschaltet ergänzt, damit bestehende Farben erhalten bleiben. Ein Noise-Seed aus dem vorhandenen Tile-Seed mit Ursprung 0 wird ergänzt. Einstellbare Prüfregeln und ein deaktivierter optionaler Außenrand wurden ergänzt. Alle Felder, Aktionen, Farben, Höhen, Objektplatzierungen und Modellzuordnungen wurden unverändert übernommen. Ein später aktivierter Rand blendet überlappende Objekte nur aus und entfernt keine gespeicherten Platzierungen. Bearbeiten bleibt möglich; der Export prüft standardmäßig Mindestfläche und Verbindungen. Die neuen Aktionsgewichte wirken erst beim ausdrücklichen Würfeln; Center-Änderungen erzeugen standardmäßig keinen neuen Wegeplan. Alle sechs Außenseiten erhalten einen festen Eingang. Falls ein älteres Projekt Eingänge deaktiviert hatte, ergänzt die Automatik die fehlenden Feldgruppen; die Deaktivierungsoption entfällt. Vorhandene Dateien bleiben unverändert.',
+        'Projekt auf Generator 18 umgestellt. Artabhängige Größenprofile passen die Objektproportionen an; gespeicherte Positionen und individuelle Größen bleiben erhalten. Das bisherige Layout bleibt im Kompatibilitätsmodus erhalten. Baum- und Pilzfarbprofile wurden ausgeschaltet ergänzt, damit bestehende Farben erhalten bleiben. Ein Noise-Seed aus dem vorhandenen Tile-Seed mit Ursprung 0 wird ergänzt. Einstellbare Prüfregeln und ein deaktivierter optionaler Außenrand wurden ergänzt. Alle Felder, Aktionen, Farben, Höhen, Objektplatzierungen und Modellzuordnungen wurden unverändert übernommen. Ein später aktivierter Rand blendet überlappende Objekte nur aus und entfernt keine gespeicherten Platzierungen. Bearbeiten bleibt möglich; der Export prüft standardmäßig Mindestfläche und Verbindungen. Die neuen Aktionsgewichte wirken erst beim ausdrücklichen Würfeln; Center-Änderungen erzeugen standardmäßig keinen neuen Wegeplan. Alle sechs Außenseiten erhalten einen festen Eingang. Falls ein älteres Projekt Eingänge deaktiviert hatte, ergänzt die Automatik die fehlenden Feldgruppen; die Deaktivierungsoption entfällt. Vorhandene Dateien bleiben unverändert.',
       ],
     };
   }
@@ -814,7 +890,7 @@ export function migrateConfig(value: unknown): ConfigMigration {
       }),
       migrated: true,
       notices: [
-        'Projekt auf Generator 16 umgestellt. Artabhängige Größenprofile passen die Objektproportionen an; gespeicherte Positionen und individuelle Größen bleiben erhalten. Das bisherige Layout bleibt im Kompatibilitätsmodus erhalten. Baum- und Pilzfarbprofile wurden ausgeschaltet ergänzt, damit bestehende Farben erhalten bleiben. Ein Noise-Seed aus dem vorhandenen Tile-Seed mit Ursprung 0 wird ergänzt. Höhenwechsel werden als Stufen mit senkrechten Wänden dargestellt. Prüfregeln und ein deaktivierter optionaler Außenrand werden ergänzt; die obsolete Rampenbreite entfällt; alle Felder, Aktionen, Farben, Höhen, Objektplatzierungen und Modellzuordnungen wurden unverändert übernommen. Ein später aktivierter Rand blendet überlappende Objekte nur aus und entfernt keine gespeicherten Platzierungen. Die neuen Aktionsgewichte wirken erst beim ausdrücklichen Würfeln; Center-Änderungen erzeugen standardmäßig keinen neuen Wegeplan. Alle sechs Außenseiten erhalten einen festen Eingang. Falls ein älteres Projekt Eingänge deaktiviert hatte, ergänzt die Automatik die fehlenden Feldgruppen; die Deaktivierungsoption entfällt. Vorhandene Dateien bleiben unverändert.',
+        'Projekt auf Generator 18 umgestellt. Artabhängige Größenprofile passen die Objektproportionen an; gespeicherte Positionen und individuelle Größen bleiben erhalten. Das bisherige Layout bleibt im Kompatibilitätsmodus erhalten. Baum- und Pilzfarbprofile wurden ausgeschaltet ergänzt, damit bestehende Farben erhalten bleiben. Ein Noise-Seed aus dem vorhandenen Tile-Seed mit Ursprung 0 wird ergänzt. Höhenwechsel werden als Stufen mit senkrechten Wänden dargestellt. Prüfregeln und ein deaktivierter optionaler Außenrand werden ergänzt; die obsolete Rampenbreite entfällt; alle Felder, Aktionen, Farben, Höhen, Objektplatzierungen und Modellzuordnungen wurden unverändert übernommen. Ein später aktivierter Rand blendet überlappende Objekte nur aus und entfernt keine gespeicherten Platzierungen. Die neuen Aktionsgewichte wirken erst beim ausdrücklichen Würfeln; Center-Änderungen erzeugen standardmäßig keinen neuen Wegeplan. Alle sechs Außenseiten erhalten einen festen Eingang. Falls ein älteres Projekt Eingänge deaktiviert hatte, ergänzt die Automatik die fehlenden Feldgruppen; die Deaktivierungsoption entfällt. Vorhandene Dateien bleiben unverändert.',
       ],
     };
   }
@@ -871,7 +947,7 @@ export function migrateConfig(value: unknown): ConfigMigration {
       }),
       migrated: true,
       notices: [
-        'Projekt auf Generator 16 umgestellt. Artabhängige Größenprofile passen die Objektproportionen an; gespeicherte Positionen und individuelle Größen bleiben erhalten. Das bisherige Layout bleibt im Kompatibilitätsmodus erhalten. Baum- und Pilzfarbprofile wurden ausgeschaltet ergänzt, damit bestehende Farben erhalten bleiben. Ein Noise-Seed aus dem vorhandenen Tile-Seed mit Ursprung 0 wird ergänzt. Mittige Pentagon-Portale mit Landschaftsecken, feste Eingangsfelder und Stufen mit senkrechten Wänden. Wege und Platzierungen werden neu aufgebaut; Prüfregeln und ein deaktivierter optionaler Außenrand werden ergänzt. Die neuen Aktionsgewichte wirken erst beim ausdrücklichen Würfeln; Center-Änderungen erzeugen standardmäßig keinen neuen Wegeplan. Alle sechs Außenseiten erhalten einen festen Eingang. Falls ein älteres Projekt Eingänge deaktiviert hatte, ergänzt die Automatik die fehlenden Feldgruppen; die Deaktivierungsoption entfällt. Vorhandene Dateien bleiben unverändert.',
+        'Projekt auf Generator 18 umgestellt. Artabhängige Größenprofile passen die Objektproportionen an; gespeicherte Positionen und individuelle Größen bleiben erhalten. Das bisherige Layout bleibt im Kompatibilitätsmodus erhalten. Baum- und Pilzfarbprofile wurden ausgeschaltet ergänzt, damit bestehende Farben erhalten bleiben. Ein Noise-Seed aus dem vorhandenen Tile-Seed mit Ursprung 0 wird ergänzt. Mittige Pentagon-Portale mit Landschaftsecken, feste Eingangsfelder und Stufen mit senkrechten Wänden. Wege und Platzierungen werden neu aufgebaut; Prüfregeln und ein deaktivierter optionaler Außenrand werden ergänzt. Die neuen Aktionsgewichte wirken erst beim ausdrücklichen Würfeln; Center-Änderungen erzeugen standardmäßig keinen neuen Wegeplan. Alle sechs Außenseiten erhalten einen festen Eingang. Falls ein älteres Projekt Eingänge deaktiviert hatte, ergänzt die Automatik die fehlenden Feldgruppen; die Deaktivierungsoption entfällt. Vorhandene Dateien bleiben unverändert.',
       ],
     };
   }

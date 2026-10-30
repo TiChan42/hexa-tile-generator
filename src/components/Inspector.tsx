@@ -1,6 +1,7 @@
 import { Diamond, Hexagon, MousePointer2, Plus, Upload, Trash2 } from 'lucide-react';
 import type { ChangeEvent } from 'react';
-import { ACTIONS } from '../core/types';
+import { SELECTABLE_ACTIONS } from '../core/types';
+import { isResource, RESOURCE_AMOUNTS } from '../core/resources';
 import { BIOME_PRESETS } from '../core/biomes';
 import type { BiomePresetId } from '../core/biomes';
 import { DECORATION_CATALOG } from '../core/objects';
@@ -15,7 +16,12 @@ import { builtinObjectPreviewUrl } from '../render/objectPreview';
 import { actionIconUrl } from '../render';
 import { ACTION_ICON_META } from '../render/icons';
 const ACTION_IMAGES = Object.fromEntries(
-  ACTIONS.map((action) => [action.id, actionIconUrl(action.id)]),
+  SELECTABLE_ACTIONS.flatMap((action) =>
+    (isResource(action.id) ? RESOURCE_AMOUNTS : [1]).map((amount) => [
+      `${action.id}:${amount}`,
+      actionIconUrl(action.id, undefined, amount),
+    ]),
+  ),
 );
 import type { ActionId, DecorationKind, GameField, GeneratedTile, TileConfig } from '../core/types';
 import { Control, GradientEditor, Range, Section, Toggle } from './Controls';
@@ -43,6 +49,7 @@ interface Props {
   selectedField?: GameField;
   setField: (value: {
     action?: ActionId;
+    resourceAmount?: number;
     color?: string;
     label?: string;
     heightOffset?: number;
@@ -231,9 +238,9 @@ export default function Inspector(props: Props) {
             <p className="section-description">Höhen aus mehrschichtigem Perlin-Rauschen.</p>
             <h3 className="biome-heading">Biomprofile</h3>
             <p className="hint">
-              Farben für Gelände, Wände und Wege sowie passende Objektarten und Größenprofile. Seed,
-              Relief, Raster und Wege bleiben erhalten; unpassende gesetzte Objekte werden entfernt.
-              Rückgängig stellt alles wieder her.
+              Farben für Gelände, Wände und Wege sowie passende Objektarten, Größenprofile und feste
+              Aktionsboni. Seed, Relief, Raster und Wege bleiben erhalten; unpassende gesetzte
+              Objekte werden entfernt. Rückgängig stellt alles wieder her.
             </p>
             <div className="biome-preset-grid">
               {BIOME_PRESETS.map((preset) => (
@@ -844,19 +851,46 @@ export default function Inspector(props: Props) {
             <>
               <Section title="Funktion">
                 <div className="action-grid">
-                  {ACTIONS.filter((a) => a.id !== 'none').map((a) => (
+                  {SELECTABLE_ACTIONS.map((a) => (
                     <button
                       key={a.id}
-                      className={`action-card ${selectedField.action === a.id ? 'selected' : ''}`}
+                      className={`action-card ${selectedField.action === a.id || (selectedField.action === 'custom' && a.id === 'event') ? 'selected' : ''}`}
+                      aria-pressed={
+                        selectedField.action === a.id ||
+                        (selectedField.action === 'custom' && a.id === 'event')
+                      }
                       title={ACTION_ICON_META[a.id].description}
                       aria-description={ACTION_ICON_META[a.id].description}
                       onClick={() => props.setField({ action: a.id })}
                     >
-                      <img className="action-pixel" src={ACTION_IMAGES[a.id]} alt="" />
+                      <img
+                        className="action-pixel"
+                        src={
+                          ACTION_IMAGES[
+                            `${a.id}:${selectedField.action === a.id ? (selectedField.resourceAmount ?? 1) : 1}`
+                          ]
+                        }
+                        alt=""
+                      />
                       <span>{a.label}</span>
                     </button>
                   ))}
                 </div>
+                {isResource(selectedField.action) && (
+                  <Control label="Ressourcenmenge">
+                    <select
+                      aria-label="Ressourcenmenge"
+                      value={selectedField.resourceAmount ?? 1}
+                      onChange={(e) => props.setField({ resourceAmount: Number(e.target.value) })}
+                    >
+                      {RESOURCE_AMOUNTS.map((amount) => (
+                        <option key={amount} value={amount}>
+                          ×{amount}
+                        </option>
+                      ))}
+                    </select>
+                  </Control>
+                )}
                 <Control label="Beschriftung / Ereigniskarte">
                   <input
                     aria-label="Feldbeschriftung"
@@ -866,8 +900,9 @@ export default function Inspector(props: Props) {
                   />
                 </Control>
                 <p className="hint">
-                  Eigene Aktionen verwenden ein Sternsymbol mit Plus. Die Beschriftung wird mit der
-                  Konfiguration gespeichert.
+                  Eigene Ereignisse verwenden die Karte mit Fragezeichen. Ressourcenfelder zeigen
+                  ihre Menge direkt im Symbol. Gold hat eine eigene Häufigkeit außerhalb der
+                  Rangfolge Altmetall → Edelsteine → Platin → Amethyst.
                 </p>
               </Section>
               <Section title="Feldhöhe">

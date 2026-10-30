@@ -1,3 +1,4 @@
+import { preV18Actions } from './fixtures/migration';
 import { describe, expect, it } from 'vitest';
 import {
   configSchema,
@@ -95,6 +96,7 @@ describe('seeded object color profiles', () => {
       void sizeProfiles;
       const legacy = {
         ...structuredClone(defaultConfig),
+        actions: preV18Actions(),
         schemaVersion: 11,
         generatorVersion,
         decoration,
@@ -104,8 +106,10 @@ describe('seeded object color profiles', () => {
       expect(migrated.config).toEqual({
         ...legacy,
         legacyLayout: true,
-        schemaVersion: 16,
-        generatorVersion: '16.0.0',
+        schemaVersion: 18,
+        actions: defaultConfig.actions,
+        actionRecipe: 16,
+        generatorVersion: '18.0.0',
         decoration: {
           ...decoration,
           sizeProfiles: defaultConfig.decoration.sizeProfiles,

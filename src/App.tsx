@@ -33,6 +33,7 @@ import {
   decorationClearsBorder,
   decorationScale,
   inTileBorder,
+  isResource,
   migrateConfig,
   placementPoint,
   polygonArea,
@@ -619,6 +620,7 @@ export default function App() {
   };
   const setField = (value: {
     action?: ActionId;
+    resourceAmount?: number;
     color?: string;
     label?: string;
     heightOffset?: number;
@@ -633,8 +635,17 @@ export default function App() {
           id: selectedField.id,
           cellIds: [],
           action: selectedField.action,
+          ...(selectedField.resourceAmount !== undefined
+            ? { resourceAmount: selectedField.resourceAmount }
+            : {}),
           ...value,
         });
+      const edit = d.paths.fields.find((f) => f.id === selectedField.id)!;
+      if (value.action !== undefined) {
+        if (isResource(value.action))
+          edit.resourceAmount = value.resourceAmount ?? selectedField.resourceAmount ?? 1;
+        else delete edit.resourceAmount;
+      }
     });
   };
   const exportConfig = () =>

@@ -800,7 +800,7 @@ select {
   background: #fcfdf9;
 }
 .action-card > span:last-child {
-  font-size: 7px;
+  font-size: 10px;
 }
 .action-card.selected {
   background: #ecf2e2;
@@ -1551,28 +1551,28 @@ select {
 .action-probabilities {
   margin-bottom: 18px;
 }
-.action-weight-row,
-.action-weight-head {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 48px 40px;
-  gap: 6px;
-  align-items: center;
+.action-weight-table {
+  width: 100%;
+  border-collapse: collapse;
   font-size: 9px;
-  margin-bottom: 7px;
-}
-.action-weight-head {
-  color: var(--muted);
-  font-size: 8px;
-}
-.action-weight-row input {
-  padding: 6px 3px;
-  text-align: center;
-  font-size: 10px;
-}
-.action-weight-row > span {
-  text-align: right;
   font-variant-numeric: tabular-nums;
+}
+.action-weight-table th,
+.action-weight-table td {
+  padding: 5px 2px;
+  text-align: right;
+  white-space: nowrap;
+}
+.action-weight-table th:first-child {
+  text-align: left;
+  white-space: normal;
+}
+.action-weight-table thead,
+.action-weight-table td {
   color: var(--muted);
+}
+.action-weight-table tbody th {
+  font-weight: normal;
 }
 .quick-rules .toggle-row {
   font-size: 10px;
@@ -2383,11 +2383,11 @@ select {
   }
 }
 .action-pixel {
-  width: 25px;
-  height: 25px;
+  width: 54px;
+  height: 54px;
   object-fit: contain;
   image-rendering: pixelated;
-  opacity: 0.8;
+  opacity: 1;
 }
 .action-card.selected .action-pixel {
   opacity: 1;

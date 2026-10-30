@@ -1,3 +1,4 @@
+import { preV18Actions } from './fixtures/migration';
 import { describe, expect, it, vi } from 'vitest';
 import * as projectRecipes from '../src/core/project';
 import { boardOrigin } from '../src/core/bulk';
@@ -371,6 +372,7 @@ describe('editable bulk collections', () => {
         ...(version === 1 ? {} : { biomeId: tile.biomeId }),
         config: {
           ...tile.config,
+          actions: preV18Actions(),
           schemaVersion: 12,
           generatorVersion: '12.0.0',
           decoration: Object.fromEntries(
@@ -382,7 +384,7 @@ describe('editable bulk collections', () => {
       const before = JSON.stringify(legacy);
       const migrated = migrateBulkProject(legacy);
       expect(migrated.tiles.map(({ config }) => config)).toEqual(
-        current.tiles.map(({ config }) => ({ ...config, legacyLayout: true })),
+        current.tiles.map(({ config }) => ({ ...config, legacyLayout: true, actionRecipe: 16 })),
       );
       expect(migrated.version).toBe(4);
       const entries = new Map([

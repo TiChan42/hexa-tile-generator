@@ -1,3 +1,4 @@
+import type { BiomePresetId } from './biomes';
 import type { DecorationKind } from './objects';
 import type { ObjectSizeProfiles } from './object-sizes';
 
@@ -29,6 +30,7 @@ export interface FieldEdit {
   id: string;
   cellIds: string[];
   action: ActionId;
+  resourceAmount?: number;
   color?: string;
   label?: string;
   heightOffset?: number;
@@ -53,16 +55,18 @@ export interface MushroomColorProfile {
   cap: [string, string, string];
 }
 export interface TileConfig {
-  schemaVersion: 16;
+  schemaVersion: 18;
+  /** Preserve historical initial action recipes when importing older projects. */
+  actionRecipe?: 16 | 17;
   /** Preserve V13 raster fragments and automatic output until an explicit rebuild. */
   legacyLayout?: true;
   /** Preserve V14 organic field shapes until an explicit rebuild. */
   layoutVersion?: 14;
-  generatorVersion: '16.0.0';
+  generatorVersion: '18.0.0';
   name: string;
   seed: string;
   editing: { regeneratePathsOnCenterChange: boolean };
-  actions: { weights: Record<ActionId, number>; revision: number };
+  actions: { biome: BiomePresetId | null; revision: number };
   rules: {
     minFieldArea: number;
     requireFieldConnectivity: boolean;
@@ -182,6 +186,7 @@ export interface GameField {
   symbolHeight: number;
   color: string;
   action: ActionId;
+  resourceAmount?: number;
   label: string;
   isCenter: boolean;
   /** True visible ground area; a main hexagon side has length 1. */
@@ -259,3 +264,5 @@ export const ACTIONS: { id: ActionId; label: string; description: string }[] = [
   { id: 'custom', label: 'Eigene Aktion', description: 'Eigene Ereigniskarte verwenden' },
   { id: 'none', label: 'Kein Symbol', description: 'Leeres Spielfeld' },
 ];
+/** Historical custom fields remain readable; new custom events use the question-mark card. */
+export const SELECTABLE_ACTIONS = ACTIONS.filter(({ id }) => id !== 'custom');

@@ -21,7 +21,13 @@ export function preserveChangedFieldColors(config: TileConfig, source: Generated
     if (!edit) {
       // Only the center can lack an entry after the caller snapshots normal fields.
       if (!field.isCenter) continue;
-      edit = { id: field.id, cellIds: [], action: field.action, label: field.label };
+      edit = {
+        id: field.id,
+        cellIds: [],
+        action: field.action,
+        label: field.label,
+        ...(field.resourceAmount !== undefined ? { resourceAmount: field.resourceAmount } : {}),
+      };
       draft.paths.fields.unshift(edit);
     }
     edit.color = field.color;

@@ -6,10 +6,12 @@ import {
   ACTION_ICON_SIZE,
   ACTION_PALETTES,
   ACTION_PIXELS,
+  actionPixels,
   actionCanvas,
   actionIconUrl,
   actionTexture,
 } from '../src/render/icons';
+import { RESOURCE_AMOUNTS, RESOURCE_IDS } from '../src/core/resources';
 import { ACTIONS } from '../src/core/types';
 import type { ActionId } from '../src/core/types';
 
@@ -58,7 +60,7 @@ function canvasDocument() {
   return canvases;
 }
 const actions = ACTIONS.map((action) => action.id);
-const visible = actions.filter((action) => action !== 'none');
+const visible = actions.filter((action) => action !== 'none' && action !== 'custom');
 const pixels = (action: ActionId) => ACTION_PIXELS[action].join('');
 afterEach(() => vi.unstubAllGlobals());
 
@@ -88,25 +90,35 @@ describe('semantic pixel-art action atlas', () => {
     }
     expect(pixels('none')).toBe('0'.repeat(ACTION_ICON_SIZE ** 2));
   });
-  it('retains recognizable semantic strokes rather than relying on color alone', () => {
-    // The circular arrow and cog have open centers; directional motion has four solid arms.
-    expect(ACTION_PIXELS.rotate[12][11]).toBe('0');
-    expect(ACTION_PIXELS.scrap[10][9]).toBe('0');
-    expect(ACTION_PIXELS.shift[4][11]).not.toBe('0');
-    expect(ACTION_PIXELS.shift[19][11]).not.toBe('0');
-    expect(ACTION_PIXELS.shift[11][4]).not.toBe('0');
-    expect(ACTION_PIXELS.shift[11][19]).not.toBe('0');
-    // A separate dot makes the card's question mark unmistakable.
-    expect(ACTION_PIXELS.event[17].slice(11, 13)).toBe('mm');
-    expect(ACTION_PIXELS.event[15].slice(11, 13)).toBe('bb');
-    // The awning alternates red cloth and cream stripes.
-    expect(ACTION_PIXELS.shop[6].slice(6, 9)).toBe('hhh');
-    expect(ACTION_PIXELS.shop[6].slice(9, 12)).toBe('mmm');
-    // Platinum includes a P and t, not the diamond used for gemstones.
-    expect(ACTION_PIXELS.platinum[7].slice(6, 9)).toBe('dds');
-    expect(ACTION_PIXELS.platinum[8].slice(6, 9)).toBe('dmd');
-    expect(ACTION_PIXELS.custom[20][17]).toBe('s');
-    expect(ACTION_PIXELS.alb[9][9]).toBe('d');
+  it('retains recognizable shapes, separated question-mark dots and material markings', () => {
+    expect(ACTION_ICON_SIZE).toBe(72);
+    // Four arrows surround a central hexagon; the event dot is separated from its hook.
+    expect(ACTION_PIXELS.shift[8][35]).toBe('m');
+    expect(ACTION_PIXELS.shift[63][35]).toBe('m');
+    expect(ACTION_PIXELS.shift[35][8]).toBe('m');
+    expect(ACTION_PIXELS.shift[35][63]).toBe('m');
+    expect(ACTION_PIXELS.event[48].slice(32, 37)).toBe('mmmmm');
+    expect(ACTION_PIXELS.event[44].slice(32, 37)).toBe('bbbbb');
+    expect(ACTION_PIXELS.scrap[25][29]).toBe('0');
+    expect(ACTION_PIXELS.shop[25][18]).toBe('h');
+    expect(ACTION_PIXELS.shop[25][23]).toBe('m');
+    expect(ACTION_PIXELS.platinum[18].slice(24, 32)).toBe('dddddddd');
+    expect(ACTION_PIXELS.alb[25][34]).toBe('d');
+    expect(ACTION_PIXELS.custom).toEqual(ACTION_PIXELS.event);
+  });
+  it('gives all five resources nine distinct, readable quantity labels on the same atlas', () => {
+    for (const resource of RESOURCE_IDS) {
+      const variants = RESOURCE_AMOUNTS.map((amount) => actionPixels(resource, amount));
+      expect(new Set(variants.map((rows) => rows.join(''))).size).toBe(9);
+      for (const rows of variants) {
+        expect(rows.slice(0, 49)).toEqual(ACTION_PIXELS[resource].slice(0, 49));
+        expect(rows.slice(52, 66).join('')).toContain('h');
+      }
+      expect(actionPixels(resource)).toEqual(variants[0]);
+    }
+    expect(actionPixels('rotate', 3)).toEqual(ACTION_PIXELS.rotate);
+    for (const value of [0, 10, 1.5, NaN, Infinity])
+      expect(() => actionPixels('gold', value)).toThrow('1 bis 9');
   });
   it('uses different material colors for amethyst, platinum, gemstones and gold', () => {
     const rgb = (action: ActionId) =>

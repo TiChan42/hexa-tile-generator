@@ -417,7 +417,7 @@ describe('versioned exports and explicit legacy migration', () => {
     const migration = migrateConfig(legacy);
     expect(migration.migrated).toBe(true);
     expect(migration.notices.length).toBeGreaterThan(0);
-    expect(migration.notices.join(' ')).toContain('Generator 16');
+    expect(migration.notices.join(' ')).toContain('Generator 18');
     const migrated = parseConfig(legacy);
     expect(migrated).toEqual(migration.config);
     expect(migrated.center).toEqual({
@@ -428,14 +428,14 @@ describe('versioned exports and explicit legacy migration', () => {
       offset: { x: 0, y: 0 },
       portalWidth: 0.45,
     });
-    expect(migrated.schemaVersion).toBe(16);
-    expect(migrated.generatorVersion).toBe('16.0.0');
+    expect(migrated.schemaVersion).toBe(18);
+    expect(migrated.generatorVersion).toBe('18.0.0');
     expect(migrated.seed).toBe(legacy.seed);
     const saved = await post('/api/tiles', { config: migrated, png: pngData() });
     expect(saved.status).toBe(201);
     const manifest = (await saved.json()) as { id: string; generatorVersion: string };
     expect(manifest.id).not.toBe(id);
-    expect(manifest.generatorVersion).toBe('16.0.0');
+    expect(manifest.generatorVersion).toBe('18.0.0');
     expect(await (await fetch(`${base}/api/tiles/${manifest.id}`)).json()).toEqual(migrated);
     expect(await readFile(join(directory, 'config.json'), 'utf8')).toBe(oldJson);
     expect(await readFile(join(directory, 'tile.png'))).toEqual(oldPng);
@@ -443,7 +443,7 @@ describe('versioned exports and explicit legacy migration', () => {
     const listed = (await (await fetch(`${base}/api/tiles`)).json()) as {
       generatorVersion: string;
     }[];
-    expect(listed.map((entry) => entry.generatorVersion).sort()).toEqual(['1.0.0', '16.0.0']);
+    expect(listed.map((entry) => entry.generatorVersion).sort()).toEqual(['1.0.0', '18.0.0']);
   });
 
   it('rejects legacy or mismatched versions during save instead of pairing an old PNG with changed generator semantics', async () => {
@@ -541,7 +541,7 @@ it('saves current eighteen-kind projects and requires explicit lossless migratio
   const saved = await post('/api/tiles', { config: migrated, png: pngData() });
   expect(saved.status).toBe(201);
   const manifest = (await saved.json()) as { id: string; generatorVersion: string };
-  expect(manifest.generatorVersion).toBe('16.0.0');
+  expect(manifest.generatorVersion).toBe('18.0.0');
   expect(await (await fetch(`${base}/api/tiles/${manifest.id}`)).json()).toEqual(migrated);
   expect(JSON.stringify(legacy)).toBe(before);
   const expanded = structuredClone(migrated);
@@ -577,7 +577,7 @@ it('keeps saved V5 ramp configs byte-identical and stores migrated stepped confi
   const response = await post('/api/tiles', { config: current, png: pngData() });
   expect(response.status).toBe(201);
   const manifest = (await response.json()) as { id: string; generatorVersion: string };
-  expect(manifest.generatorVersion).toBe('16.0.0');
+  expect(manifest.generatorVersion).toBe('18.0.0');
   expect(manifest.id).not.toBe(id);
   expect(await readFile(join(directory, 'config.json'), 'utf8')).toBe(oldJson);
   expect(await readFile(join(directory, 'tile.png'))).toEqual(png);
@@ -634,7 +634,7 @@ it('requires explicit V6 migration and stores the unchanged editable field confi
   const response = await post('/api/tiles', { config: migrated, png: pngData() });
   expect(response.status).toBe(201);
   const manifest = (await response.json()) as { id: string; generatorVersion: string };
-  expect(manifest.generatorVersion).toBe('16.0.0');
+  expect(manifest.generatorVersion).toBe('18.0.0');
   expect(await (await fetch(`${base}/api/tiles/${manifest.id}`)).json()).toEqual(migrated);
   expect(JSON.stringify(legacy)).toBe(before);
 });
@@ -760,7 +760,7 @@ it('requires explicit V8 migration and preserves its rules and placements when s
   const response = await post('/api/tiles', { config: current, png: pngData() });
   expect(response.status).toBe(201);
   const manifest = (await response.json()) as { id: string; generatorVersion: string };
-  expect(manifest.generatorVersion).toBe('16.0.0');
+  expect(manifest.generatorVersion).toBe('18.0.0');
   expect(await (await fetch(`${base}/api/tiles/${manifest.id}`)).json()).toEqual(current);
   expect(JSON.stringify(old)).toBe(before);
 });
@@ -780,7 +780,7 @@ it('rejects malformed or missing border settings before persisting a current exp
   expect(await (await fetch(`${base}/api/tiles`)).json()).toEqual([]);
 });
 
-it('requires V9 migration before persisting new preferences and accepts all-zero action drafts', async () => {
+it('requires V9 migration before persisting the biome reference and roll revision', async () => {
   const legacy = {
     ...structuredClone(frozenV9),
     export: { size: 128, transparent: true },
@@ -797,13 +797,12 @@ it('requires V9 migration before persisting new preferences and accepts all-zero
     actions: defaultConfig.actions,
   });
   config.editing.regeneratePathsOnCenterChange = true;
-  for (const id of Object.keys(config.actions.weights) as (keyof typeof config.actions.weights)[])
-    config.actions.weights[id] = 0;
+  config.actions.biome = 'mosslight';
   config.actions.revision = 2147483647;
   const response = await post('/api/tiles', { config, png: pngData() });
   expect(response.status).toBe(201);
   const manifest = (await response.json()) as { id: string; generatorVersion: string };
-  expect(manifest.generatorVersion).toBe('16.0.0');
+  expect(manifest.generatorVersion).toBe('18.0.0');
   expect(await (await fetch(`${base}/api/tiles/${manifest.id}`)).json()).toEqual(config);
   expect(JSON.stringify(legacy)).toBe(before);
 });
@@ -811,15 +810,13 @@ it('requires V9 migration before persisting new preferences and accepts all-zero
 it('rejects incomplete, unknown and out-of-range editing or action settings', async () => {
   const config = { ...structuredClone(defaultConfig), export: { size: 128, transparent: true } };
   const { actions, editing, ...withoutPreferences } = config;
-  const { rotate, ...missingWeight } = actions.weights;
-  expect(rotate).toBe(10);
   for (const invalid of [
     { ...withoutPreferences, actions },
     { ...withoutPreferences, editing },
     { ...config, editing: { regeneratePathsOnCenterChange: 'false' } },
-    { ...config, actions: { ...actions, weights: missingWeight } },
-    { ...config, actions: { ...actions, weights: { ...actions.weights, event: 101 } } },
-    { ...config, actions: { ...actions, weights: { ...actions.weights, unknown: 1 } } },
+    { ...config, actions: { revision: 0 } },
+    { ...config, actions: { ...actions, biome: 'unknown' } },
+    { ...config, actions: { ...actions, weights: {} } },
     { ...config, actions: { ...actions, revision: 2147483648 } },
     { ...config, actions: { ...actions, revision: 0.5 } },
     { ...frozenV9, editing, actions },

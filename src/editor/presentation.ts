@@ -1,4 +1,5 @@
 import type { GeneratedTile, TileConfig } from '../core/types';
+import { isResource } from '../core/resources';
 
 /** Picking remains valid while only colors, actions, labels or decorations are changing. */
 export function interactionKey(config: TileConfig): string {
@@ -64,10 +65,20 @@ export function presentFieldEdits(tile: GeneratedTile, config: TileConfig): Gene
     if (!edit) return field;
     const color = edit.color ?? field.color,
       label = edit.label ?? field.label,
-      action = edit.action;
-    if (color === field.color && label === field.label && action === field.action) return field;
+      action = edit.action,
+      resourceAmount = isResource(action) ? (edit.resourceAmount ?? 1) : undefined;
+    if (
+      color === field.color &&
+      label === field.label &&
+      action === field.action &&
+      resourceAmount === field.resourceAmount
+    )
+      return field;
     changed = true;
-    return { ...field, color, label, action };
+    const result = { ...field, color, label, action };
+    if (resourceAmount === undefined) delete result.resourceAmount;
+    else result.resourceAmount = resourceAmount;
+    return result;
   });
   if (!changed) return tile;
   const colors = new Map(fields.map((field) => [field.id, field.color]));

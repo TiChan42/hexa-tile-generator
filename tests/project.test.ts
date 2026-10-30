@@ -1,4 +1,4 @@
-import { v13MigrationAdditions, preV11Materials } from './fixtures/migration';
+import { v13MigrationAdditions, preV11Materials, preV18Actions } from './fixtures/migration';
 import { describe, expect, it } from 'vitest';
 import {
   configSchema,
@@ -83,6 +83,7 @@ describe('complete seed-based editable projects', () => {
       ).toBe(true);
       const originalCells = structuredClone(tile.cells);
       config.paths.fields[1].action = 'shop';
+      delete config.paths.fields[1].resourceAmount;
       config.paths.fields[1].color = '#ad7862';
       config.paths.fields[1].label = 'Waldladen';
       const edited = generateTile(config);
@@ -162,7 +163,13 @@ describe('explicit config migration', () => {
       const source = structuredClone(defaultConfig);
       source.paths.auto = false;
       source.paths.fields = [{ id: 'center', cellIds: [], action: 'shop', label: 'Behalten' }];
-      const legacy = { ...source, ...preV11Materials(source), schemaVersion: 10, generatorVersion };
+      const legacy = {
+        ...source,
+        ...preV11Materials(source),
+        actions: preV18Actions(),
+        schemaVersion: 10,
+        generatorVersion,
+      };
       const before = structuredClone(legacy);
       const migrated = migrateConfig(legacy);
       expect(migrated.config).toEqual({ ...legacy, ...v13MigrationAdditions(legacy) });
@@ -188,6 +195,7 @@ describe('explicit config migration', () => {
     const legacy = {
       ...structuredClone(defaultConfig),
       decoration: oldDecoration,
+      actions: preV18Actions(),
       schemaVersion: 12 as const,
       generatorVersion: '12.0.0' as const,
     };
@@ -196,8 +204,8 @@ describe('explicit config migration', () => {
     ];
     const result = migrateConfig(legacy);
     expect(result.migrated).toBe(true);
-    expect(result.config.schemaVersion).toBe(16);
-    expect(result.config.generatorVersion).toBe('16.0.0');
+    expect(result.config.schemaVersion).toBe(18);
+    expect(result.config.generatorVersion).toBe('18.0.0');
     expect(result.config.paths.fields).toEqual(legacy.paths.fields);
     expect(result.config.paths.fieldCount).toBe(legacy.paths.fieldCount);
     expect(result.config.decoration.colorProfiles).toEqual(legacy.decoration.colorProfiles);
@@ -209,9 +217,9 @@ describe('explicit config migration', () => {
       before = JSON.stringify(legacy),
       result = migrateConfig(legacy);
     expect(result.migrated).toBe(true);
-    expect(result.notices[0]).toContain('Generator 16');
-    expect(result.config.schemaVersion).toBe(16);
-    expect(result.config.generatorVersion).toBe('16.0.0');
+    expect(result.notices[0]).toContain('Generator 18');
+    expect(result.config.schemaVersion).toBe(18);
+    expect(result.config.generatorVersion).toBe('18.0.0');
     expect(result.config.center).toEqual({
       shape: 'regular',
       scale: 1,
@@ -236,14 +244,14 @@ describe('explicit config migration', () => {
     expect(result.config.paths.auto).toBe(true);
     expect(result.config.center.offset).toEqual({ x: 0, y: 0 });
     expect(result.config.decoration.density).toBe(0.72);
-    expect(result.notices.join(' ')).toContain('Generator 16');
+    expect(result.notices.join(' ')).toContain('Generator 18');
   });
   it('migrates the frozen v3 format explicitly and rejects unsupported v4 elevation values', () => {
     const source = structuredClone(v3),
       before = JSON.stringify(source),
       result = migrateConfig(source);
     expect(result.migrated).toBe(true);
-    expect(result.config.schemaVersion).toBe(16);
+    expect(result.config.schemaVersion).toBe(18);
     expect(result.config.center.portalWidth).toBe(0.45);
     expect(result.config.paths.heightMode).toBe('flat');
     expect(result.config.paths.fields).toEqual([]);
@@ -372,6 +380,7 @@ describe('lossless V4/V5 migration to stepped walls', () => {
       source.export = { size: 512, transparent: false };
       source.palette = ['#aa77cc', '#33aabb'];
       const {
+        actionRecipe: sourceRecipe,
         legacyLayout: sourceLegacy,
         rules: sourceRules,
         border: sourceBorder,
@@ -379,11 +388,12 @@ describe('lossless V4/V5 migration to stepped walls', () => {
         actions: sourceActions,
         ...legacySource
       } = source;
+      expect(sourceRecipe).toBe(16);
       expect(sourceLegacy).toBe(true);
       expect(sourceRules).toEqual(defaultConfig.rules);
       expect(sourceBorder).toEqual(defaultConfig.border);
       expect(sourceEditing).toEqual(defaultConfig.editing);
-      expect(sourceActions).toEqual(defaultConfig.actions);
+      expect(sourceActions.revision).toBe(defaultConfig.actions.revision);
       const legacy = {
         ...legacySource,
         ...preV11Materials(source),
@@ -394,7 +404,7 @@ describe('lossless V4/V5 migration to stepped walls', () => {
       const before = JSON.stringify(legacy);
       const migration = migrateConfig(legacy);
       expect(migration.migrated).toBe(true);
-      expect(migration.notices.join(' ')).toContain('Projekt auf Generator 16 umgestellt');
+      expect(migration.notices.join(' ')).toContain('Projekt auf Generator 18 umgestellt');
       expect(migration.notices.join(' ')).toContain('unverändert übernommen');
       const { transitionWidth: obsoleteWidth, ...paths } = legacy.paths;
       expect(obsoleteWidth).toBeGreaterThanOrEqual(0.01);
@@ -623,6 +633,8 @@ it('validates obsolete ramp widths in frozen V5 before removing only that settin
 
 it('keeps the stored recipe and personal sizes while migrating versions, ramp width and size profiles', () => {
   const current = createSeededProject('wald-123');
+  // Construct a historical file with quantities absent, as required by its frozen schema.
+  for (const field of current.paths.fields) delete field.resourceAmount;
   current.decoration.colorProfiles.trees.enabled = false;
   current.decoration.colorProfiles.mushrooms.enabled = false;
   const {
@@ -635,7 +647,7 @@ it('keeps the stored recipe and personal sizes while migrating versions, ramp wi
   expect(currentRules).toEqual(defaultConfig.rules);
   expect(currentBorder).toEqual(defaultConfig.border);
   expect(currentEditing).toEqual(defaultConfig.editing);
-  expect(currentActions).toEqual(defaultConfig.actions);
+  expect(currentActions.revision).toBe(defaultConfig.actions.revision);
   const legacy = {
     ...oldCurrent,
     ...preV11Materials(current),
@@ -648,6 +660,8 @@ it('keeps the stored recipe and personal sizes while migrating versions, ramp wi
   };
   expect(migrateConfig(legacy).config).toEqual({
     ...current,
+    actions: defaultConfig.actions,
+    actionRecipe: 16,
     legacyLayout: true,
     decoration: { ...current.decoration, sizeProfiles: defaultConfig.decoration.sizeProfiles },
   });
@@ -692,6 +706,7 @@ it('migrates frozen V6 configurations one to one without snapshotting or resetti
   ];
   source.decoration.modelSlots = { quartz: 'model-v6-quartz', fern: 'model-v6-fern' };
   const {
+    actionRecipe: sourceRecipe,
     legacyLayout: sourceLegacy,
     rules: sourceRules,
     border: sourceBorder,
@@ -699,11 +714,12 @@ it('migrates frozen V6 configurations one to one without snapshotting or resetti
     actions: sourceActions,
     ...legacySource
   } = source;
+  expect(sourceRecipe).toBe(16);
   expect(sourceLegacy).toBe(true);
   expect(sourceRules).toEqual(defaultConfig.rules);
   expect(sourceBorder).toEqual(defaultConfig.border);
   expect(sourceEditing).toEqual(defaultConfig.editing);
-  expect(sourceActions).toEqual(defaultConfig.actions);
+  expect(sourceActions.revision).toBe(defaultConfig.actions.revision);
   const legacy = {
     ...legacySource,
     ...preV11Materials(source),
@@ -721,7 +737,7 @@ it('migrates frozen V6 configurations one to one without snapshotting or resetti
     border: defaultConfig.border,
   });
   expect(result.migrated).toBe(true);
-  expect(result.notices.join(' ')).toContain('Projekt auf Generator 16 umgestellt');
+  expect(result.notices.join(' ')).toContain('Projekt auf Generator 18 umgestellt');
   expect(result.notices.join(' ')).toContain('unverändert übernommen');
   expect(JSON.stringify(legacy)).toBe(before);
   expect(generateTile(result.config)).toEqual(generateTile(source));
@@ -794,7 +810,7 @@ it('adds default rules, noise coordinates and disabled color profiles when migra
       exportPolicy: 'block',
     },
   });
-  expect(result.notices.join(' ')).toContain('Projekt auf Generator 16 umgestellt');
+  expect(result.notices.join(' ')).toContain('Projekt auf Generator 18 umgestellt');
   expect(result.notices.join(' ')).toContain('Prüfregeln');
   expect(JSON.stringify(source)).toBe(before);
   result.config.rules.minFieldArea = 0;
@@ -899,7 +915,7 @@ it('migrates V8 with an inactive border, noise coordinates and disabled color pr
     border: { enabled: false, width: 0.015, mode: 'black', color: '#000000' },
   });
   expect(result.migrated).toBe(true);
-  expect(result.notices.join(' ')).toContain('Projekt auf Generator 16 umgestellt');
+  expect(result.notices.join(' ')).toContain('Projekt auf Generator 18 umgestellt');
   expect(result.notices.join(' ')).toContain('gespeicherte Platzierungen bleiben erhalten');
   expect(JSON.stringify(legacy)).toBe(before);
   result.config.border.enabled = true;
@@ -1001,75 +1017,31 @@ it('migrates V9 by adding editing and action defaults without changing any saved
     actions: defaultConfig.actions,
   });
   expect(result.migrated).toBe(true);
-  expect(result.notices.join(' ')).toContain('Projekt auf Generator 16 umgestellt');
+  expect(result.notices.join(' ')).toContain('Projekt auf Generator 18 umgestellt');
   expect(result.notices.join(' ')).toContain('vorhandene Aktionen werden nicht neu ausgewürfelt');
   expect(JSON.stringify(legacy)).toBe(before);
-  result.config.actions.weights.rotate = 0;
+  result.config.actions.biome = 'nebelmoor';
   result.config.editing.regeneratePathsOnCenterChange = true;
-  expect(defaultConfig.actions.weights.rotate).toBe(10);
+  expect(defaultConfig.actions.biome).toBe(null);
   expect(defaultConfig.editing.regeneratePathsOnCenterChange).toBe(false);
 });
 
-it('requires exactly thirteen finite bounded action weights and a bounded integer revision', () => {
-  const ids = [
-    'rotate',
-    'shift',
-    'event',
-    'shop',
-    'scrap',
-    'jump',
-    'alb',
-    'amethyst',
-    'platinum',
-    'gem',
-    'gold',
-    'custom',
-    'none',
-  ] as const;
-  expect(Object.keys(defaultConfig.actions.weights).sort()).toEqual([...ids].sort());
+it('stores only a strict biome reference and bounded integer roll revision per tile', () => {
+  expect(defaultConfig.actions).toEqual({ biome: null, revision: 0 });
   expect(
-    Object.values(defaultConfig.actions.weights).reduce((sum, weight) => sum + weight, 0),
-  ).toBe(100);
-  const zero = Object.fromEntries(ids.map((id) => [id, 0]));
-  const parsed = configSchema.parse({
-    ...defaultConfig,
-    actions: { weights: zero, revision: 2147483647 },
-  });
-  expect(parsed.actions.weights).toEqual(zero);
-  for (const id of ids) {
-    const missing = Object.fromEntries(
-      Object.entries(defaultConfig.actions.weights).filter(([key]) => key !== id),
-    );
-    expect(() =>
-      configSchema.parse({ ...defaultConfig, actions: { weights: missing, revision: 0 } }),
-    ).toThrow();
-    expect(
-      configSchema.parse({
-        ...defaultConfig,
-        actions: { weights: { ...zero, [id]: 100 }, revision: 0 },
-      }).actions.weights[id],
-    ).toBe(100);
-  }
-  for (const value of [-0.001, 100.001, Infinity, NaN, '10'])
-    expect(() =>
-      configSchema.parse({
-        ...defaultConfig,
-        actions: { weights: { ...zero, event: value }, revision: 0 },
-      }),
-    ).toThrow();
-  expect(() =>
-    configSchema.parse({
-      ...defaultConfig,
-      actions: { weights: { ...zero, future: 1 }, revision: 0 },
-    }),
-  ).toThrow();
-  for (const revision of [-1, 0.5, 2147483648, Infinity, '0'])
-    expect(() =>
-      configSchema.parse({ ...defaultConfig, actions: { weights: zero, revision } }),
-    ).toThrow();
-  expect(() =>
-    configSchema.parse({ ...defaultConfig, actions: { weights: zero, revision: 0, extra: true } }),
-  ).toThrow();
+    configSchema.parse({ ...defaultConfig, actions: { biome: 'mosslight', revision: 2147483647 } })
+      .actions.biome,
+  ).toBe('mosslight');
+  for (const actions of [
+    {},
+    { revision: 0 },
+    { biome: 'unknown', revision: 0 },
+    { biome: 42, revision: 0 },
+    { biome: null, revision: 0, weights: {} },
+    { biome: null, revision: 0, extra: true },
+    ...[-1, 0.5, 2147483648, Infinity, '0'].map((revision) => ({ biome: null, revision })),
+  ])
+    expect(() => configSchema.parse({ ...defaultConfig, actions })).toThrow();
 });
 
 it('keeps editing settings strict and prevents new preferences from leaking into historical schemas', () => {
@@ -1095,23 +1067,21 @@ it('keeps editing settings strict and prevents new preferences from leaking into
   }
 });
 
-it('clones full-seed preferences without using them to reroll initial actions', () => {
+it('preserves the roll revision while the generated biome supplies its own action buffs', () => {
   const ordinary = createSeededProject('wald-123');
   const actions: TileConfig['actions'] = {
-    weights: Object.fromEntries(
-      Object.keys(defaultConfig.actions.weights).map((id) => [id, 0]),
-    ) as TileConfig['actions']['weights'],
+    biome: 'nebelmoor',
     revision: 2147483647,
   };
   const editing = { regeneratePathsOnCenterChange: true };
   const before = structuredClone({ actions, editing });
   const custom = createSeededProject('wald-123', { actions, editing });
-  expect(custom.actions).toEqual(actions);
+  expect(custom.actions).toEqual({ ...ordinary.actions, revision: actions.revision });
   expect(custom.editing).toEqual(editing);
   expect(custom.paths.fields).toEqual(ordinary.paths.fields);
   expect(generateTile(custom)).toEqual(generateTile(ordinary));
   expect({ actions, editing }).toEqual(before);
-  custom.actions.weights.event = 100;
+  custom.actions.biome = 'frostgrat';
   custom.editing.regeneratePathsOnCenterChange = false;
   expect({ actions, editing }).toEqual(before);
 });

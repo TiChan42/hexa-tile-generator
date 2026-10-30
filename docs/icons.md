@@ -1,27 +1,28 @@
-# Klare Aktionssymbole
+# Aktions- und Ressourcensymbole
 
-Alle Aktionen verwenden ein festes Raster von 24 × 24 Pixeln. Die Canvas-Textur ist vierfach, also 96 × 96 Pixel, und wird mit Nearest-Filter ohne Mipmaps dargestellt. Es werden keine Schriftarten oder externen Bilddateien benötigt. Die Pixelgrafiken sind Bestandteil des versionierten Renderers.
+Seit Generator 17 werden die Symbole auf einem nativen **72 × 72-Pixel-Raster** neu gezeichnet, dreimal so hoch aufgelöst wie die bisherigen 24 × 24 Pixel. Die vierfache Canvas-Textur hat 288 × 288 Pixel. Nearest-Filter ohne Mipmaps erhalten die Pixelkonturen; Schriftarten und externe Bilder werden nicht benötigt. Die Editorvorschau zeigt die Symbole größer und mit voller Deckkraft.
 
-| Aktion         | Erkennungsmerkmal                                  | Farbgebung                     |
-| -------------- | -------------------------------------------------- | ------------------------------ |
-| Drehen         | kreisförmiger Pfeil mit klarer Pfeilspitze         | Türkis                         |
-| Verschieben    | vier Richtungspfeile                               | Blau                           |
-| Ereignis       | Karte mit großem Fragezeichen und getrenntem Punkt | Violett auf hellem Papier      |
-| Laden          | gestreifte Markise, Tür und Schaufenster           | Rot, Creme, hellblaues Glas    |
-| Metallschrott  | Zahnrad mit Loch und rostiges Metallstück          | Stahlgrau und Rostbraun        |
-| Zufallssprung  | Portal, ausgehender Pfeil und Würfel               | Violett und Gold               |
-| Wandernder Alb | dunkle Geistergestalt, helle Maske, glühende Augen | Nachtblau und Rot              |
-| Amethyst       | drei spitze Kristalle als Gruppe                   | Violett                        |
-| Platin         | zwei Barren und eine Pt-Markierung                 | Silber mit blaugrauen Schatten |
-| Edelstein      | einzelner breiter, facettierter Diamant            | Türkisblau                     |
-| Gold           | drei Münzstapel mit sichtbaren Oberseiten          | Gelb und dunkles Gold          |
-| Eigene Aktion  | fünfzackiger Stern und ein Plus                    | Orange und Grün                |
-| Kein Symbol    | vollständig transparente Fläche                    | keine                          |
+| Feld                      | Erkennungsmerkmal                                                  |
+| ------------------------- | ------------------------------------------------------------------ |
+| Drehen                    | Großer türkiser Kreispfeil um ein Sechseck                         |
+| Verschieben               | Vier breite blaue Richtungspfeile um ein Sechseck                  |
+| Ereignis                  | Helle Karte mit großem violettem Fragezeichen und getrenntem Punkt |
+| Laden                     | Rot gestreifte Markise, Schaufenster und L-Schild                  |
+| Zufallssprung             | Zwei violette Portale mit Sprungpfeil und Zufallswürfel            |
+| Wandernder Alb            | Dunkle wandernde Geistergestalt mit heller Maske und roten Augen   |
+| Metallschrott / Altmetall | Stahlgraues Zahnrad mit rostiger Schraube                          |
+| Edelstein                 | Breiter türkisblauer Diamant mit klaren Facetten                   |
+| Platin                    | Silberner Barren mit großer Pt-Prägung                             |
+| Amethyst                  | Violette spitze Kristallgruppe                                     |
+| Gold                      | Goldene Münzen mit G-Prägung                                       |
+| Kein Symbol               | Transparente Fläche                                                |
 
-Eine dunkle Kontur und eine helle, pixelgenau gezeichnete Unterlage halten die Symbole auf hellen wie dunklen Spielfeldern lesbar. Die Silhouetten unterscheiden sich auch ohne Farbe. Das Ereignissymbol bleibt ein Fragezeichen, wie es die unveränderte `Spielbeschreibung` vorgibt. Die Zeichen beschreiben Aktionen für das Brettspiel; sie simulieren keine Spielregeln.
+Alle fünf Ressourcen zeigen unten eine kontrastreiche **×1- bis ×9-Mengenangabe**. Diese Menge ist Teil der Textur und erscheint identisch in Einzelkachel, Serienübersicht, PNG und GLB. Die Texturgruppen werden nach Aktion und Menge getrennt. Eine Mengenänderung aktualisiert das Symbol, ohne die Geländegeometrie neu aufzubauen. Die Form des Ressourcensymbols bleibt über alle Mengen gleich.
 
-`ACTION_PIXELS` enthält die eigentlichen Glyphen ohne gemeinsame Unterlage. `0` bedeutet transparent, die anderen Zeichen verweisen auf die jeweilige `ACTION_PALETTES`-Farbe. `ACTION_ICON_META` ergänzt deutsche Namen und Beschreibungen für Legenden und barrierefreie Beschriftungen.
+Das frühere Stern-plus-Symbol für eigene Aktionen entfällt aus der Auswahl und dem Würfeln. Eigene Ereignisse verwenden die beschriebene Fragezeichenkarte und eine Beschriftung. Historische `custom`-Einträge bleiben lesbar und werden ebenfalls als Ereigniskarte dargestellt. `none` bleibt eine leere Fläche.
 
-`actionCanvas(action)`, `actionIconUrl(action)` und `actionTexture(action)` erzeugen standardmäßig die mehrfarbigen Symbole. Ein ausdrücklich übergebenes `foreground`, etwa `actionCanvas('event', '#112233')`, erzeugt für bestehende Aufrufer eine einfarbige Grafik auf transparentem Grund. Dabei bleiben relevante Binnenzeichen wie Fragezeichen oder Pt-Markierung erhalten. `none` bleibt in beiden Modi leer.
+`ACTION_PIXELS` enthält die Grundzeichnungen ohne gemeinsame Unterlage und Mengenanzeige. `actionPixels(action, amount)` ergänzt die Ressourcenmenge. `0` bedeutet transparent; andere Zeichen verweisen auf `ACTION_PALETTES`. `ACTION_ICON_META` enthält deutsche Namen und Beschreibungen. Die Symbole kennzeichnen Spielmaterial, ohne die genaue Wirkung einer Aktion zu simulieren.
 
-Eine visuelle Kontaktübersicht kann lokal aus demselben Modul erzeugt werden; Screenshots und Vorschauen gehören in den ignorierten Ordner `working/`.
+`actionCanvas(action, foreground?, amount?)` und `actionIconUrl(action, foreground?, amount?)` erzeugen standardmäßig mehrfarbige Symbole mit Menge 1. Eine explizite Vordergrundfarbe erhält den transparenten einfarbigen Modus einschließlich erkennbarer Mengenzeichen. `actionTexture(action, amount?)` erstellt die Three.js-Textur. Ungültige Ressourcenmengen werden abgewiesen.
+
+Kontaktübersichten und Screenshots liegen ausschließlich im ignorierten `working/`-Ordner. Die [Aktionswürfe und Seltenheiten](actions.md) beschreiben die Verteilung der Ressourcen.

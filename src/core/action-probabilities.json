@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "baseWeights": {
+    "rotate": 10,
+    "shift": 10,
+    "event": 20,
+    "shop": 10,
+    "jump": 5,
+    "alb": 5,
+    "scrap": 24,
+    "gem": 8,
+    "platinum": 2.6666666666666665,
+    "amethyst": 0.8888888888888888,
+    "gold": 12,
+    "none": 0,
+    "custom": 0
+  },
+  "biomeBuffs": {
+    "mosslight": { "event": 0.25, "alb": 0.25 },
+    "abendrot": { "shop": 0.25, "gold": 0.25 },
+    "frostgrat": { "scrap": 0.5, "platinum": 0.5 },
+    "amethysthain": { "amethyst": 1, "gem": 0.5 },
+    "sonnensteppe": { "gold": 0.5, "shift": 0.25 },
+    "nebelmoor": { "alb": 0.5, "event": 0.25 },
+    "regenbogenhain": { "event": 0.5, "jump": 0.5 },
+    "pilzkristallgrotte": { "gem": 0.5, "amethyst": 0.5 },
+    "kobaltkristallhoehle": { "gem": 1, "platinum": 0.5 },
+    "korallenmoor": { "gem": 0.5, "jump": 0.25 },
+    "nachtgarten": { "alb": 0.5, "amethyst": 0.5 },
+    "jadefarnwald": { "event": 0.5, "alb": 0.25 },
+    "juwelensteppe": { "gold": 0.5, "gem": 0.5 }
+  }
+}

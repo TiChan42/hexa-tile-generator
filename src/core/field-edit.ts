@@ -218,6 +218,7 @@ export function prepareFieldShapeEdit(
       id: field.id,
       cellIds: [...field.cellIds],
       action: field.action,
+      ...(field.resourceAmount !== undefined ? { resourceAmount: field.resourceAmount } : {}),
       label: field.label,
     }));
   if (original) snapshot.find((field) => field.id === fieldId)!.cellIds = ids;

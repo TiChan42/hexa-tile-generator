@@ -180,7 +180,6 @@ describe('worker scheduling and presentation separation', () => {
     visual.border.mode = 'custom';
     visual.border.color = '#fe0033';
     visual.editing.regeneratePathsOnCenterChange = true;
-    visual.actions.weights.rotate = 99;
     visual.actions.revision = 42;
     expect(generationKey(visual)).toBe(generationKey(original));
     for (const mutate of [

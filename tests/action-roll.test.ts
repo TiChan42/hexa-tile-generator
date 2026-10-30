@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   ACTIONS,
+  actionWeightsForBiome,
+  sampleFieldAction,
+  SELECTABLE_ACTIONS,
   configSchema,
   defaultConfig,
   generateTile,
@@ -55,41 +58,24 @@ describe('explicit deterministic weighted field action rolls', () => {
     expect(tile).toEqual(beforeTile);
     expect(configSchema.safeParse(first).success).toBe(true);
   });
-  it.each(ACTIONS.map(({ id }) => id))(
-    'assigns one-hot %s to every normal field and the pentagon',
-    (action) => {
-      const config = structuredClone(base);
-      config.actions.weights = { ...weights(), [action]: 100 };
-      const next = rollFieldActions(config, visible);
-      expect(new Set(next.paths.fields.map((field) => field.action))).toEqual(new Set([action]));
-      expect(next.paths.fields.find((field) => field.id === 'center')?.action).toBe(action);
-      expect(next.paths.fields).toHaveLength(visible.fields.length);
-    },
-  );
-  it('excludes every zero-weight action and applies the configured bias rather than uniform sampling', () => {
-    const config = structuredClone(base);
-    config.actions.weights = { ...weights(), event: 10, gold: 90 };
-    const tile = manyFields(256),
-      rolled = rollFieldActions(config, tile),
-      actions = rolled.paths.fields.map((field) => field.action);
-    expect(new Set(actions)).toEqual(new Set(['event', 'gold']));
-    const gold = actions.filter((action) => action === 'gold').length,
-      event = actions.filter((action) => action === 'event').length;
-    expect(gold).toBeGreaterThan(event * 5);
-    expect(event).toBeGreaterThan(0);
+  it.each(SELECTABLE_ACTIONS.map(({ id }) => id))('samples one-hot %s', (action) => {
+    const oneHot = { ...weights(), [action]: 100 };
+    for (const draw of [0, 0.1, 0.5, 0.999999])
+      expect(sampleFieldAction(oneHot, draw)).toBe(action);
   });
-  it('normalizes relative fractional weights and ignores their object insertion order', () => {
-    const config = structuredClone(base),
-      other = structuredClone(base);
-    config.actions.weights = { ...weights(), shop: 4.5, event: 9.25, gold: 23.5 };
-    other.actions.weights = Object.fromEntries(
-      Object.entries(config.actions.weights)
+  it('excludes zero-weight actions and normalizes relative weights independently of key order', () => {
+    const biased = { ...weights(), event: 10, gold: 90 };
+    const reversed = Object.fromEntries(
+      Object.entries(biased)
         .reverse()
         .map(([id, weight]) => [id, weight / 4]),
     ) as Record<ActionId, number>;
-    const tile = manyFields();
-    expect(actionsById(rollFieldActions(config, tile))).toEqual(
-      actionsById(rollFieldActions(other, tile)),
+    const draws = Array.from({ length: 256 }, (_, i) => randomAt('bias', 'sampling', i));
+    const actions = draws.map((draw) => sampleFieldAction(biased, draw));
+    expect(actions).toEqual(draws.map((draw) => sampleFieldAction(reversed, draw)));
+    expect(new Set(actions)).toEqual(new Set(['event', 'gold']));
+    expect(actions.filter((action) => action === 'gold').length).toBeGreaterThan(
+      actions.filter((action) => action === 'event').length * 5,
     );
   });
   it('keeps all fields independent of their enumeration order and of newly added visible fields', () => {
@@ -173,10 +159,12 @@ describe('explicit deterministic weighted field action rolls', () => {
     const { fields: beforeFields, ...beforeSettings } = beforePaths,
       { fields: afterFields, ...afterSettings } = afterPaths;
     expect(afterSettings).toEqual(beforeSettings);
-    expect(afterActions.weights).toEqual(beforeActions.weights);
+    expect(afterActions.biome).toEqual(beforeActions.biome);
     for (const original of beforeFields) {
       const edit = afterFields.find((field) => field.id === original.id)!;
-      expect({ ...edit, action: original.action }).toEqual(original);
+      const { resourceAmount: _amount, ...withoutAmount } = edit;
+      void _amount;
+      expect({ ...withoutAmount, action: original.action }).toEqual(original);
     }
     expect(afterFields.find((field) => field.id === 'inactive-edit')).toEqual(
       beforeFields.find((field) => field.id === 'inactive-edit'),
@@ -184,7 +172,11 @@ describe('explicit deterministic weighted field action rolls', () => {
     for (const edit of afterFields.filter(
       (edit) => !beforeFields.some((original) => original.id === edit.id),
     ))
-      expect(Object.keys(edit).sort()).toEqual(['action', 'cellIds', 'id']);
+      expect(
+        Object.keys(edit)
+          .filter((key) => key !== 'resourceAmount')
+          .sort(),
+      ).toEqual(['action', 'cellIds', 'id']);
     expect(
       afterFields
         .filter((edit) => !beforeFields.some((original) => original.id === edit.id))
@@ -192,10 +184,13 @@ describe('explicit deterministic weighted field action rolls', () => {
     ).toBe(true);
     const withoutActions = (tile: GeneratedTile) => ({
       ...tile,
-      fields: tile.fields.map(({ action: discarded, ...field }) => {
-        void discarded;
-        return field;
-      }),
+      fields: tile.fields.map(
+        ({ action: discarded, resourceAmount: discardedAmount, ...field }) => {
+          void discarded;
+          void discardedAmount;
+          return field;
+        },
+      ),
     });
     expect(withoutActions(after)).toEqual(withoutActions(tile));
     expect(config).toEqual(before);
@@ -221,15 +216,11 @@ describe('explicit deterministic weighted field action rolls', () => {
     expect(next.paths.auto).toBe(false);
     expect(generateTile(next).cells).toEqual(tile.cells);
   });
-  it('permits an all-zero editable config but rejects rolling it with a clear error and no mutation', () => {
-    const config = structuredClone(base);
-    config.actions.weights = weights();
-    const before = structuredClone(config);
-    expect(configSchema.safeParse(config).success).toBe(true);
-    expect(() => rollFieldActions(config, visible)).toThrow(
+  it('rejects a distribution without any positive selectable action', () => {
+    expect(() => sampleFieldAction(weights(), 0.5)).toThrow(
       'mindestens ein Aktionsgewicht größer als 0',
     );
-    expect(config).toEqual(before);
+    expect(() => sampleFieldAction({ ...weights(), custom: 100 }, 0.5)).toThrow();
   });
   it('wraps the maximum revision to zero and uses that wrapped revision for sampling', () => {
     const config = structuredClone(base);
@@ -238,7 +229,7 @@ describe('explicit deterministic weighted field action rolls', () => {
     expect(wrapped.actions.revision).toBe(0);
     const expected = new Map(
       visible.fields.map((field) => {
-        const candidates = Object.entries(config.actions.weights)
+        const candidates = Object.entries(actionWeightsForBiome(config.actions.biome))
           .filter(([, weight]) => weight > 0)
           .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
         const total = candidates.reduce((sum, [, weight]) => sum + weight, 0),
@@ -249,20 +240,12 @@ describe('explicit deterministic weighted field action rolls', () => {
     );
     for (const field of wrapped.paths.fields) expect(field.action).toBe(expected.get(field.id));
   });
-  it('retains a positive one-hot subnormal weight even if rounding lands exactly on the final bucket edge', () => {
-    const config = structuredClone(base);
-    config.actions.weights = { ...weights(), custom: Number.MIN_VALUE };
-    const id = Array.from({ length: 64 }, (_, i) => `tiny-${i}`).find(
-      (id) => randomAt(config.seed, 'field-action-roll-v10', 1, id) > 0.5,
-    )!;
-    expect(id).toBeDefined();
-    const next = rollFieldActions(config, { ...visible, fields: [{ ...visible.fields[0]!, id }] });
-    expect(next.paths.fields).toEqual([{ id, cellIds: [], action: 'custom' }]);
+  it('retains a positive subnormal weight when rounding reaches the final bucket edge', () => {
+    expect(sampleFieldAction({ ...weights(), event: Number.MIN_VALUE }, 0.75)).toBe('event');
   });
-  it('leaves ordinary generation unchanged when weights or the roll counter are edited without rolling', () => {
+  it('leaves ordinary generation unchanged when the roll counter is edited without rolling', () => {
     const config = structuredClone(base),
       before = generateTile(config);
-    config.actions.weights = { ...weights(), none: 100 };
     config.actions.revision = 111;
     expect(generateTile(config)).toEqual(before);
   });

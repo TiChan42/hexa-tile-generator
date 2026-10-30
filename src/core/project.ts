@@ -3,6 +3,7 @@ import { configSchema, defaultConfig } from './config';
 import { generateTile } from './generate';
 import { placementOffset } from './subgrid';
 import { hash32, randomAt } from './random';
+import { initialFieldAction, isResource, rollResourceAmount } from './resources';
 import { evaluateTileRules } from './rules';
 import {
   applyBiomePreset,
@@ -122,7 +123,10 @@ export function createSeededProject(seed: string, options: SeededProjectOptions 
   config.rules = structuredClone(options.rules ?? defaultConfig.rules);
   config.border = structuredClone(options.border ?? defaultConfig.border);
   config.editing = structuredClone(options.editing ?? defaultConfig.editing);
-  config.actions = structuredClone(options.actions ?? defaultConfig.actions);
+  config.actions = {
+    biome: theme.sizeBiome,
+    revision: options.actions?.revision ?? 0,
+  };
   config.name = `${theme.name} ${hash32(seed).toString(36).slice(0, 4).toUpperCase()}`;
   config.grid = structuredClone(
     options.grid ?? {
@@ -241,13 +245,21 @@ export function createSeededProject(seed: string, options: SeededProjectOptions 
     'gold',
   ];
   // Freeze editable field shapes and actions; ordinary colors keep following the seeded gradient.
-  config.paths.fields = generated.fields.map((field) => ({
-    id: field.id,
-    cellIds: field.isCenter ? [] : [...field.cellIds],
-    action: field.isCenter ? 'event' : pick(`action:${field.id}`, actions),
-    ...(field.isCenter ? { color: field.color } : {}),
-    label: field.label,
-  }));
+  config.paths.fields = generated.fields.map((field) => {
+    const action = field.isCenter
+      ? 'event'
+      : config.actionRecipe === 16
+        ? pick(`action:${field.id}`, actions)
+        : initialFieldAction(seed, field.id, config.actions.biome, config.actionRecipe);
+    return {
+      id: field.id,
+      cellIds: field.isCenter ? [] : [...field.cellIds],
+      action,
+      ...(isResource(action) ? { resourceAmount: rollResourceAmount(seed, 0, field.id) } : {}),
+      ...(field.isCenter ? { color: field.color } : {}),
+      label: field.label,
+    };
+  });
   const cells = new Map(generated.cells.map((cell) => [cell.id, cell]));
   config.decoration.placements = generated.decorations.map((object) => {
     const offset = placementOffset(cells.get(object.cellId)!, object.position);

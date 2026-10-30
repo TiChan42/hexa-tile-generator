@@ -22,7 +22,7 @@ for (const frozen of [frozenV13, frozenV14]) {
       source,
     );
     await page.goto('/');
-    await expect(page.getByRole('status')).toContainText('Generator 16');
+    await expect(page.getByRole('status')).toContainText('Generator 18');
     const legacy = await project(page);
     expect(legacy.legacyLayout === true || legacy.layoutVersion === 14).toBe(true);
     const before = generateTile(legacy);
@@ -75,7 +75,7 @@ for (const frozen of [frozenV13, frozenV14]) {
         (key) => JSON.parse(localStorage.getItem(key)!).schemaVersion,
         PROJECT_STORAGE_KEY,
       ),
-    ).toBe(16);
+    ).toBe(18);
     await page.getByRole('button', { name: 'Draufsicht', exact: true }).click();
     await page
       .getByTestId('viewport')

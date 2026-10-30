@@ -396,9 +396,9 @@ test('legacy browser projects migrate with an explicit notice and keep their pre
     legacy,
   );
   await page.goto('/');
-  await expect(page.getByRole('status')).toContainText('Projekt auf Generator 16 umgestellt');
+  await expect(page.getByRole('status')).toContainText('Projekt auf Generator 18 umgestellt');
   const migrated = await project(page);
-  expect(migrated.schemaVersion).toBe(16);
+  expect(migrated.schemaVersion).toBe(18);
   expect(migrated.center.shape).toBe('regular');
   expect(migrated.export).toEqual(defaultConfig.export);
   await expect(page.locator('canvas')).toBeVisible();
@@ -515,8 +515,8 @@ for (const version of [4, 5, 6, 7, 8, 9] as const) {
       value: legacy,
     });
     await page.goto('/');
-    await expect(page.getByRole('status')).toContainText('Projekt auf Generator 16 umgestellt');
-    expect(await project(page)).toEqual(expected);
+    await expect(page.getByRole('status')).toContainText('Projekt auf Generator 18 umgestellt');
+    expect(await project(page)).toEqual({ ...expected, actionRecipe: 16 });
     expect(await page.evaluate((key) => JSON.parse(localStorage.getItem(key)!), key)).toEqual(
       legacy,
     );
@@ -764,5 +764,5 @@ test('center portals keep landscape corners and fields support editable terraces
   const icon = page.locator('.action-card img').first();
   await expect
     .poll(async () => icon.evaluate((img) => (img as HTMLImageElement).naturalWidth))
-    .toBe(96);
+    .toBe(288);
 });

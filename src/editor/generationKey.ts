@@ -7,7 +7,7 @@ export function generationKey(config: TileConfig): string {
     ...config,
     name: defaultConfig.name,
     editing: defaultConfig.editing,
-    actions: defaultConfig.actions,
+    actions: { ...config.actions, revision: defaultConfig.actions.revision },
     border: {
       ...config.border,
       mode: defaultConfig.border.mode,

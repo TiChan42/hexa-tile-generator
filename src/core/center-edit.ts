@@ -142,12 +142,14 @@ export function prepareCenterEdit(
       // Preserve existing order when no fragments changed; append only new local pieces.
       const cellIds = field.cellIds.filter((id) => ids.delete(id)),
         edit = edits.get(field.id);
+      const resourceAmount = edit ? edit.resourceAmount : field.resourceAmount;
       cellIds.push(...ids);
       return {
         ...(edit ?? {}),
         id: field.id,
         cellIds,
         action: edit?.action ?? field.action,
+        ...(resourceAmount !== undefined ? { resourceAmount } : {}),
         label: edit?.label ?? field.label,
       };
     });
