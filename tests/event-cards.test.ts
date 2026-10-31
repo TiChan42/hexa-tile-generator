@@ -500,6 +500,26 @@ describe('rare gifts and exceptional actions', () => {
 });
 
 describe('explicit card instructions and matching fronts/backs', () => {
+  it('embeds each landscape once with SVG 1.1 image links in standalone cards and print sheets', () => {
+    const project = createEventProject();
+    project.cards = project.cards.slice(0, 1);
+    const value = project.cards[0]!;
+    const frontImage = 'data:image/png;base64,front';
+    const backImage = 'data:image/png;base64,back';
+    const front = eventCardSvg(value, project.design, 'front', 'seed', frontImage);
+    const back = eventCardSvg(value, project.design, 'back', 'seed', undefined, backImage);
+    for (const svg of [front, back]) {
+      expect(svg).toContain('xmlns:xlink="http://www.w3.org/1999/xlink"');
+      expect(svg).toContain('xlink:href="data:image/png;base64,');
+      expect(svg.match(/data:image\/png;base64,/g)).toHaveLength(1);
+      expect(svg).not.toContain('data-art-pending');
+    }
+    const html = eventPrintHtml(project, { [value.id]: frontImage }, backImage);
+    expect(html).toContain(`xlink:href="${frontImage}"`);
+    expect(html).toContain(`xlink:href="${backImage}"`);
+    expect(html.match(/xmlns:xlink="http:\/\/www.w3.org\/1999\/xlink"/g)).toHaveLength(2);
+    expect(html.match(/data:image\/png;base64,back/g)).toHaveLength(1);
+  });
   it.each([...EVENT_KINDS, 'custom' as const])(
     'describes and renders %s without needing a tile',
     (kind) => {

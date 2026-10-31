@@ -85,11 +85,11 @@ export function eventCardSvg(
 ): string {
   const card = eventCardSchema.parse(input),
     design = cardDesignSchema.parse(suppliedDesign);
-  const opening = `<svg data-render-version="${CARD_LANDSCAPE_VERSION}" data-landscape-seed="${escape(landscapeSeed)}" xmlns="http://www.w3.org/2000/svg" width="756" height="1056" viewBox="0 0 756 1056" role="img" aria-label="${escape(side === 'front' ? card.title : design.backTitle)}"><title>${escape(side === 'front' ? card.title : design.backTitle)}</title><g font-family="Arial, sans-serif">${frame(design)}`;
+  const opening = `<svg data-render-version="${CARD_LANDSCAPE_VERSION}" data-landscape-seed="${escape(landscapeSeed)}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="756" height="1056" viewBox="0 0 756 1056" role="img" aria-label="${escape(side === 'front' ? card.title : design.backTitle)}"><title>${escape(side === 'front' ? card.title : design.backTitle)}</title><g font-family="Arial, sans-serif">${frame(design)}`;
   if (side === 'back')
     return (
       opening +
-      `<defs><clipPath id="back-landscape-clip"><rect width="756" height="1056" rx="36"/></clipPath></defs><g clip-path="url(#back-landscape-clip)">${backImage ? `<image data-landscape="webgl-map" href="${escape(backImage)}" width="756" height="1056"/>` : '<rect data-art-pending="true" width="756" height="1056" fill="#748963"/>'}<rect width="756" height="1056" fill="#172c3b" opacity=".12"/></g><rect x="125" y="427" width="506" height="190" rx="18" fill="${design.ink}" opacity=".9"/><rect x="135" y="437" width="486" height="170" rx="11" fill="none" stroke="${design.accent}" stroke-width="3"/>${symbol('event', 174, 461, 110)}${textBlock(design.backTitle, 453, 503, 310, 27, design.background, 700, 'middle')}${textBlock(design.footer, 453, 552, 310, 14, design.background, 400, 'middle')}<rect x="18" y="18" width="720" height="1020" rx="26" fill="none" stroke="${design.ink}" stroke-width="3"/></g></svg>`
+      `<defs><clipPath id="back-landscape-clip"><rect width="756" height="1056" rx="36"/></clipPath></defs><g clip-path="url(#back-landscape-clip)">${backImage ? `<image data-landscape="webgl-map" xlink:href="${escape(backImage)}" width="756" height="1056"/>` : '<rect data-art-pending="true" width="756" height="1056" fill="#748963"/>'}<rect width="756" height="1056" fill="#172c3b" opacity=".12"/></g><rect x="125" y="427" width="506" height="190" rx="18" fill="${design.ink}" opacity=".9"/><rect x="135" y="437" width="486" height="170" rx="11" fill="none" stroke="${design.accent}" stroke-width="3"/>${symbol('event', 174, 461, 110)}${textBlock(design.backTitle, 453, 503, 310, 27, design.background, 700, 'middle')}${textBlock(design.footer, 453, 552, 310, 14, design.background, 400, 'middle')}<rect x="18" y="18" width="720" height="1020" rx="26" fill="none" stroke="${design.ink}" stroke-width="3"/></g></svg>`
     );
   const category = cardCategory(card);
   const action: ActionId =
@@ -101,7 +101,7 @@ export function eventCardSvg(
           ? 'rotate'
           : 'jump';
   const artwork = frontImage
-    ? `<image data-landscape="webgl-tile" href="${escape(frontImage)}" x="0" y="700" width="756" height="356" preserveAspectRatio="xMidYMid slice"/>`
+    ? `<image data-landscape="webgl-tile" xlink:href="${escape(frontImage)}" x="0" y="700" width="756" height="356" preserveAspectRatio="xMidYMid slice"/>`
     : '<rect data-art-pending="true" x="0" y="700" width="756" height="356" fill="#647f58"/>';
   let content = artwork;
   content += textBlock(`EREIGNIS · ${category.toUpperCase()}`, 58, 66, 630, 16, design.accent, 700);
@@ -165,7 +165,7 @@ export function eventPrintHtml(
       )
     : '';
   const backContents = backSvg.replace(/^<svg[^>]*>/, '').replace(/<\/svg>$/, '');
-  const sharedBack = `<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="position:absolute;width:0;height:0;overflow:hidden"><defs><symbol id="card-back" viewBox="0 0 756 1056">${backContents}</symbol></defs></svg>`;
+  const sharedBack = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" aria-hidden="true" style="position:absolute;width:0;height:0;overflow:hidden"><defs><symbol id="card-back" viewBox="0 0 756 1056">${backContents}</symbol></defs></svg>`;
   for (let offset = 0; offset < project.cards.length; offset += 9) {
     const cards = project.cards.slice(offset, offset + 9);
     pages.push(

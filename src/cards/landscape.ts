@@ -2,8 +2,8 @@ import { defaultConfig } from '../core/config';
 import { generateTile } from '../core/generate';
 import { hash32, randomAt } from '../core/random';
 
-/** Renderer version 4: real generated tile geometry, independent of open tile projects. */
-export const CARD_LANDSCAPE_VERSION = 4;
+/** Renderer version 5: embedded landscape images also support SVG 1.1 readers. */
+export const CARD_LANDSCAPE_VERSION = 5;
 const palettes = [
   ['#314b40', '#587952', '#91ab70', '#d6ce9d'],
   ['#3b3e59', '#716b83', '#a597ac', '#dbc9b7'],

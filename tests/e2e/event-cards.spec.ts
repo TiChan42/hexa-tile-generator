@@ -16,6 +16,72 @@ async function saved(page: Page) {
   );
 }
 
+async function expectExportedFront(page: Page, svg: Uint8Array, png: Uint8Array) {
+  const result = await page.evaluate(
+    async ({ svg, png }) => {
+      const document = new DOMParser().parseFromString(svg, 'image/svg+xml');
+      const artwork = document.querySelector<SVGImageElement>('image[data-landscape]')!;
+      if (!artwork.getAttributeNS('http://www.w3.org/1999/xlink', 'href'))
+        throw new Error('Standalone SVG images must also support SVG 1.1 readers.');
+      async function pixels(source: string, scale = 1) {
+        const image = new Image();
+        image.src = source;
+        await image.decode();
+        const canvas = window.document.createElement('canvas');
+        canvas.width = image.naturalWidth * scale;
+        canvas.height = image.naturalHeight * scale;
+        const context = canvas.getContext('2d')!;
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        return context.getImageData(0, 0, canvas.width, canvas.height);
+      }
+      const expected = await pixels(artwork.href.baseVal);
+      const actual = await pixels(`data:image/png;base64,${png}`);
+      const standalone = await pixels(`data:image/svg+xml,${encodeURIComponent(svg)}`, 2);
+      let samples = 0;
+      let matches = 0;
+      let svgMatches = 0;
+      // Stay below the effects and above the footer, where the landscape is unobscured.
+      for (let y = 1800; y < 1900; y += 8)
+        for (let x = 100; x < 1412; x += 8) {
+          const source = ((y - 1400) * expected.width + x) * 4;
+          if (expected.data[source + 3] !== 255) continue;
+          samples++;
+          const destination = (y * actual.width + x) * 4;
+          if (
+            [0, 1, 2, 3].every(
+              (channel) =>
+                Math.abs(expected.data[source + channel]! - actual.data[destination + channel]!) <=
+                3,
+            )
+          )
+            matches++;
+          if (
+            [0, 1, 2, 3].every(
+              (channel) =>
+                Math.abs(
+                  expected.data[source + channel]! - standalone.data[destination + channel]!,
+                ) <= 3,
+            )
+          )
+            svgMatches++;
+        }
+      return {
+        samples,
+        ratio: matches / samples,
+        svgRatio: svgMatches / samples,
+        width: actual.width,
+        height: actual.height,
+      };
+    },
+    { svg: strFromU8(svg), png: Buffer.from(png).toString('base64') },
+  );
+  expect(result.width).toBe(1512);
+  expect(result.height).toBe(2112);
+  expect(result.samples).toBeGreaterThan(100);
+  expect(result.ratio).toBeGreaterThan(0.99);
+  expect(result.svgRatio).toBeGreaterThan(0.99);
+}
+
 test('combines monster, movement and resource effects with costs and retains independent data', async ({
   page,
 }) => {
@@ -126,9 +192,18 @@ test('generates an Alb deck, exports fronts and back, and saves through the API'
   ).toHaveLength(3);
   expect(entries['rueckseite.png']).toBeDefined();
   expect(Buffer.from(entries['rueckseite.png']!).readUInt32BE(16)).toBe(1512);
+  for (const name of Object.keys(entries).filter(
+    (name) => name.startsWith('vorderseiten/') && name.endsWith('.svg'),
+  ))
+    await expectExportedFront(page, entries[name]!, entries[name.replace(/\.svg$/, '.png')]!);
   expect(strFromU8(entries['druckbogen.html']!)).toContain('63mm');
   expect(JSON.parse(strFromU8(entries['project.json']!))).toEqual(project);
   await page.getByRole('button', { name: 'Design & Export', exact: true }).click();
+  const singleDownload = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Aktuelle Kartenseite als PNG', exact: true }).click();
+  const single = await singleDownload;
+  const firstFront = Object.keys(entries).find((name) => name.startsWith('vorderseiten/'))!;
+  await expectExportedFront(page, entries[firstFront]!, await readFile((await single.path())!));
   await page.getByRole('button', { name: 'Kartenset in Working speichern' }).click();
   await expect(page.getByRole('status')).toContainText('Gespeichert unter working/cards/');
   await page.getByRole('button', { name: 'Gespeicherte Sets' }).click();
@@ -282,7 +357,8 @@ test('preserves the rear silhouette, fills the foreground and adds editable even
       .slice(1)
       .join(',');
     const parsed = new DOMParser().parseFromString(svg, 'image/svg+xml');
-    const url = parsed.querySelector('image[data-landscape="webgl-tile"]')!.getAttribute('href')!;
+    const url = parsed.querySelector<SVGImageElement>('image[data-landscape="webgl-tile"]')!.href
+      .baseVal;
     const image = new Image();
     image.src = url;
     await image.decode();
