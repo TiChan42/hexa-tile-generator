@@ -43,6 +43,8 @@ export interface BulkGenerationOptions {
   borderTemplate: TileConfig['border'];
   fieldCount: number;
   actionDistribution?: ActionProbabilities;
+  gridVisibility?: Pick<TileConfig['grid'], 'showGrid' | 'showSubgrid'>;
+  exportTemplate?: TileConfig['export'];
 }
 
 export interface BulkProject {
@@ -76,6 +78,11 @@ export const bulkGenerationOptionsSchema = z
     borderTemplate: borderSchema,
     fieldCount: z.number().int().min(7).max(24),
     actionDistribution: actionProbabilitiesSchema.optional(),
+    gridVisibility: z
+      .object({ showGrid: z.boolean(), showSubgrid: z.boolean() })
+      .strict()
+      .optional(),
+    exportTemplate: configSchema.shape.export.optional(),
   })
   .strict()
   .refine((options) => options.rows * options.columns <= 49, {
@@ -350,6 +357,7 @@ function applySharedGrid(config: TileConfig, grid: TileConfig['grid']): TileConf
 /** Generate a reproducible collection of independently editable tile recipes. */
 export function createBulkProject(input: BulkGenerationOptions): BulkProject {
   const options = bulkGenerationOptionsSchema.parse(input);
+  const gridTemplate = { ...options.gridTemplate, ...options.gridVisibility };
   const tiles: BulkProject['tiles'] = [];
   let terrainProfile: Omit<TileConfig['terrain'], 'noise'> | undefined;
   const sharedNoiseSeed = `bulk-terrain-${hash32(`${options.seed}:continuous-terrain`).toString(36)}`;
@@ -373,7 +381,8 @@ export function createBulkProject(input: BulkGenerationOptions): BulkProject {
           ...(options.actionDistribution
             ? { actions: { biome: biomeId, revision: 0, distribution: options.actionDistribution } }
             : {}),
-          ...(options.uniformGrid ? { grid: options.gridTemplate } : {}),
+          ...(options.uniformGrid ? { grid: gridTemplate } : {}),
+          ...(options.exportTemplate ? { export: options.exportTemplate } : {}),
           ...(options.uniformBorder ? { border: options.borderTemplate } : {}),
           ...(options.continuousNoise
             ? {
@@ -399,6 +408,11 @@ export function createBulkProject(input: BulkGenerationOptions): BulkProject {
       throw new Error(
         `Tile ${index + 1} konnte nach acht reproduzierbaren Versuchen nicht erzeugt werden. ${lastError instanceof Error ? lastError.message : ''}`,
       );
+    if (options.gridVisibility)
+      config = configSchema.parse({
+        ...config,
+        grid: { ...config.grid, ...options.gridVisibility },
+      });
     if (options.continuousNoise && !terrainProfile) {
       const { noise, ...profile } = config.terrain;
       void noise;
@@ -417,11 +431,44 @@ export function createBulkProject(input: BulkGenerationOptions): BulkProject {
     uniformBorder: options.uniformBorder,
     biomeMode: options.biomeMode,
     biomeId: options.biomeId,
-    gridTemplate: options.gridTemplate,
+    gridTemplate,
     borderTemplate: options.borderTemplate,
     tiles,
     order: tiles.map((tile) => tile.id),
     shuffleRevision: 0,
+  });
+}
+
+/** Visibility is presentation only, including series with independently sized rasters. */
+export function setBulkGridVisibility(
+  input: BulkProject,
+  visibility: Partial<Pick<TileConfig['grid'], 'showGrid' | 'showSubgrid'>>,
+): BulkProject {
+  const project = bulkProjectSchema.parse(input);
+  const parsed = gridSchema.pick({ showGrid: true, showSubgrid: true }).partial().parse(visibility);
+  return bulkProjectSchema.parse({
+    ...project,
+    gridTemplate: { ...project.gridTemplate, ...parsed },
+    tiles: project.tiles.map((tile) => ({
+      ...tile,
+      config: { ...tile.config, grid: { ...tile.config.grid, ...parsed } },
+    })),
+  });
+}
+
+/** A shared output size does not rebuild fields, heights or placements. */
+export function setBulkExportSettings(
+  input: BulkProject,
+  settings: TileConfig['export'],
+): BulkProject {
+  const project = bulkProjectSchema.parse(input);
+  const parsed = configSchema.shape.export.parse(settings);
+  return bulkProjectSchema.parse({
+    ...project,
+    tiles: project.tiles.map((tile) => ({
+      ...tile,
+      config: { ...tile.config, export: { ...parsed } },
+    })),
   });
 }
 

@@ -76,6 +76,7 @@ import {
 import { Group } from 'three';
 import { boardOrigin } from './core/bulk';
 import { disposeExportContent } from './render/modelExport';
+import { topViewSvg } from './render/svgExport';
 
 const LAYERS = [
   { id: 'grid' as const, title: 'Raster', subtitle: 'Die Grundlage', icon: Grid3X3 },
@@ -1001,11 +1002,16 @@ export default function App() {
           const blob =
             option === 'model'
               ? await renderer.current.exportGlb(snapshot)
-              : await renderer.current.exportPng(
-                  item.config.export.size,
-                  item.config.export.transparent,
-                  { ...item.config.camera, mode: option },
-                );
+              : option === 'svg'
+                ? new Blob(
+                    [topViewSvg(snapshot, item.config.export.size, item.config.export.transparent)],
+                    { type: 'image/svg+xml' },
+                  )
+                : await renderer.current.exportPng(
+                    item.config.export.size,
+                    item.config.export.transparent,
+                    { ...item.config.camera, mode: option },
+                  );
           await archiveWriter.add(
             archiveTilePath(index, item.config.name, option, distinctViews.length > 1),
             blob,
@@ -1029,12 +1035,16 @@ export default function App() {
         const blob =
           option === 'model'
             ? await renderer.current!.exportGlb(board)
-            : await renderer.current!.exportBoardPng(
-                board,
-                first.export.size,
-                first.export.transparent,
-                { ...first.camera, mode: option },
-              );
+            : option === 'svg'
+              ? new Blob([topViewSvg(board, first.export.size, first.export.transparent)], {
+                  type: 'image/svg+xml',
+                })
+              : await renderer.current!.exportBoardPng(
+                  board,
+                  first.export.size,
+                  first.export.transparent,
+                  { ...first.camera, mode: option },
+                );
         await archiveWriter.add(archiveBoardPath(option), blob);
         done++;
         setBulkExportProgress({
@@ -1610,7 +1620,12 @@ export default function App() {
         createPortal(
           <BulkWorkspace
             project={bulkProject}
-            template={{ grid: config.grid, border: config.border, paths: config.paths }}
+            template={{
+              grid: config.grid,
+              border: config.border,
+              paths: config.paths,
+              export: config.export,
+            }}
             generating={bulkGenerating}
             message={bulkMessage}
             exportProgress={bulkExportProgress}

@@ -1,7 +1,8 @@
-import { Zip, ZipPassThrough } from 'fflate';
+import { Zip, ZipPassThrough, ZipDeflate } from 'fflate';
 
 export type BulkExportView = 'top' | 'orbit' | 'perspective';
-export type BulkExportOption = BulkExportView | 'model';
+export const BULK_EXPORT_OPTIONS = ['top', 'orbit', 'perspective', 'svg', 'model'] as const;
+export type BulkExportOption = (typeof BULK_EXPORT_OPTIONS)[number];
 
 const VIEW_FILES: Record<BulkExportView, string> = {
   top: 'draufsicht.png',
@@ -25,16 +26,21 @@ export function archiveTilePath(
       .replace(/^-|-$/g, '') || 'kachel';
   const directory = `${sequence}-${slug}`;
   if (view === 'model') return multipleViews ? `${directory}/modell.glb` : `${directory}.glb`;
+  if (view === 'svg') return multipleViews ? `${directory}/draufsicht.svg` : `${directory}.svg`;
   if (multipleViews) return `${directory}/${VIEW_FILES[view]}`;
   const suffix = view === 'top' ? '' : `-${VIEW_FILES[view]!.replace('.png', '')}`;
   return `${directory}${suffix}.png`;
 }
 
 export function archiveBoardPath(option: BulkExportOption): string {
-  return option === 'model' ? 'gesamtfeld/modell.glb' : `gesamtfeld/${VIEW_FILES[option]}`;
+  return option === 'model'
+    ? 'gesamtfeld/modell.glb'
+    : option === 'svg'
+      ? 'gesamtfeld/draufsicht.svg'
+      : `gesamtfeld/${VIEW_FILES[option]}`;
 }
 
-/** Add PNG/GLB payloads incrementally without recompressing or retaining their source Blobs. */
+/** Stream binary payloads unchanged; compress SVG text while keeping bounded input chunks. */
 export class PngArchiveWriter {
   private readonly chunks: BlobPart[] = [];
   private readonly archive: Zip;
@@ -64,7 +70,9 @@ export class PngArchiveWriter {
   async add(path: string, blob: Blob): Promise<void> {
     if (this.ended) throw new Error('Das ZIP wurde bereits abgeschlossen.');
     if (this.archiveError) throw this.archiveError;
-    const file = new ZipPassThrough(path);
+    const file = path.endsWith('.svg')
+      ? new ZipDeflate(path, { level: 6 })
+      : new ZipPassThrough(path);
     file.mtime = new Date('1980-01-01T00:00:00.000Z');
     this.archive.add(file);
     const bytes = new Uint8Array(await blob.arrayBuffer());
@@ -85,7 +93,7 @@ export class PngArchiveWriter {
     this.ended = true;
     if (!this.entryCount) {
       this.archive.terminate();
-      this.rejectArchive(new Error('Der ZIP-Export enthält keine PNG- oder GLB-Dateien.'));
+      this.rejectArchive(new Error('Der ZIP-Export enthält keine PNG-, SVG- oder GLB-Dateien.'));
       return this.result;
     }
     this.archive.end();

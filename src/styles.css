@@ -1049,6 +1049,11 @@ select {
   border-radius: 12px;
   background: #fffefb;
 }
+.bulk-controls .bulk-export-picker {
+  flex-direction: column;
+  align-items: stretch;
+  margin-top: 16px;
+}
 .bulk-export-picker-heading strong,
 .bulk-export-picker-heading small {
   display: block;

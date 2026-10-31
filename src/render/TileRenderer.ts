@@ -400,6 +400,7 @@ export class TileRenderer {
           polygonOffsetFactor: -2,
           forceSinglePass: true,
         });
+        material.userData.actionIcon = { action: field.action, amount: field.resourceAmount ?? 1 };
         this.iconMaterials.set(iconKey, material);
         this.preservedMaterials.add(material);
       }

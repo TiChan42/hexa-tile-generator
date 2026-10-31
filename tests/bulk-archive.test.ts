@@ -1,8 +1,59 @@
 import { unzipSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
 import { archiveBoardPath, archiveTilePath, PngArchiveWriter } from '../src/editor/bulkArchive';
+import {
+  loadBulkExportOptions,
+  saveBulkExportOptions,
+  BULK_EXPORT_STORAGE_KEY,
+} from '../src/editor/bulkStorage';
 
 describe('bulk PNG archives', () => {
+  it('names and losslessly compresses vector SVGs alongside PNGs and models', async () => {
+    expect(archiveTilePath(0, 'Moor', 'svg', false)).toBe('01-moor.svg');
+    expect(archiveTilePath(0, 'Moor', 'svg', true)).toBe('01-moor/draufsicht.svg');
+    expect(archiveBoardPath('svg')).toBe('gesamtfeld/draufsicht.svg');
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg">${'<path d="M0 0L1 0L1 1Z"/>'.repeat(1000)}</svg>`;
+    const writer = new PngArchiveWriter();
+    await writer.add('gesamtfeld/draufsicht.svg', new Blob([svg], { type: 'image/svg+xml' }));
+    const archive = await writer.finish();
+    expect(archive.size).toBeLessThan(svg.length / 4);
+    const files = unzipSync(new Uint8Array(await archive.arrayBuffer()));
+    expect(new TextDecoder().decode(files['gesamtfeld/draufsicht.svg'])).toBe(svg);
+  });
+  it('persists the format selection independently of series files and validates stored preferences', () => {
+    const data = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => data.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        data.set(key, value);
+      },
+    };
+    expect(loadBulkExportOptions(storage)).toEqual(['top']);
+    saveBulkExportOptions(storage, ['svg', 'model']);
+    expect(loadBulkExportOptions(storage)).toEqual(['svg', 'model']);
+    saveBulkExportOptions(storage, []);
+    expect(loadBulkExportOptions(storage)).toEqual([]);
+    for (const bad of [
+      '{',
+      JSON.stringify({ version: 2, options: ['svg'] }),
+      JSON.stringify({ version: 1, options: ['svg', 'svg'] }),
+      JSON.stringify({ version: 1, options: ['pdf'] }),
+    ]) {
+      data.set(BULK_EXPORT_STORAGE_KEY, bad);
+      expect(loadBulkExportOptions(storage)).toEqual(['top']);
+    }
+    expect(loadBulkExportOptions(null)).toEqual(['top']);
+    expect(() =>
+      saveBulkExportOptions(
+        {
+          setItem: () => {
+            throw new Error('quota');
+          },
+        },
+        ['svg'],
+      ),
+    ).not.toThrow();
+  });
   it('uses flat PNG names by default and separate tile folders for multiple views', () => {
     expect(archiveTilePath(0, 'Nebelmoor ÄÖÜ', 'top', false)).toBe('01-nebelmoor-aou.png');
     expect(archiveTilePath(1, '../', 'top', false)).toBe('02-kachel.png');

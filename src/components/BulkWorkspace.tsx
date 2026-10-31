@@ -17,6 +17,8 @@ import {
   BIOME_PRESETS,
   setBulkContinuousNoise,
   setBulkUniformity,
+  setBulkGridVisibility,
+  setBulkExportSettings,
   type BulkGenerationOptions,
   type BulkProject,
 } from '../core';
@@ -24,11 +26,13 @@ import type { TileConfig } from '../core/types';
 import type { GeneratedTile } from '../core/types';
 import type { BiomePresetId } from '../core/biomes';
 import type { BulkExportOption } from '../editor/bulkArchive';
+import { loadBulkExportOptions, saveBulkExportOptions } from '../editor/bulkStorage';
+import { generationKey } from '../editor/generationKey';
 import BulkSeriesViewer from './BulkSeriesViewer';
 
 interface Props {
   project: BulkProject | null;
-  template: Pick<TileConfig, 'grid' | 'border' | 'paths'>;
+  template: Pick<TileConfig, 'grid' | 'border' | 'paths' | 'export'>;
   generating: boolean;
   message: { text: string; error: boolean } | null;
   exportProgress: { done: number; total: number; mode: 'zip' | 'working' } | null;
@@ -81,7 +85,17 @@ export default function BulkWorkspace({
     project?.tiles[0]?.config.paths.fieldCount ?? template.paths.fieldCount,
   );
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [exportViews, setExportViews] = useState<BulkExportOption[]>(['top']);
+  const [exportViews, setExportViews] = useState<BulkExportOption[]>(() => {
+    try {
+      return loadBulkExportOptions(localStorage);
+    } catch {
+      return ['top'];
+    }
+  });
+  const [exportTemplate, setExportTemplate] = useState(
+    project?.tiles[0]?.config.export ?? template.export,
+  );
+  const [resolutionDraft, setResolutionDraft] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'2d' | '3d'>('2d');
   const [previewData, setPreviewData] = useState<{
     key: string;
@@ -92,6 +106,10 @@ export default function BulkWorkspace({
   );
   const [previewAttempt, setPreviewAttempt] = useState(0);
   const previewLoader = useRef(onLoadPreviews);
+  const previewSource = useRef(project);
+  useEffect(() => {
+    previewSource.current = project;
+  }, [project]);
   useEffect(() => {
     previewLoader.current = onLoadPreviews;
   }, [onLoadPreviews]);
@@ -100,6 +118,19 @@ export default function BulkWorkspace({
   const count = rows * columns;
   const overLimit = count > 49;
   const currentGrid = project?.gridTemplate ?? gridTemplate;
+  const gridVisibility = project
+    ? {
+        showGrid: project.tiles.some(({ config }) => config.grid.showGrid),
+        showSubgrid: project.tiles.some(({ config }) => config.grid.showSubgrid),
+      }
+    : { showGrid: currentGrid.showGrid, showSubgrid: currentGrid.showSubgrid };
+  const currentExport = project?.tiles[0]?.config.export ?? exportTemplate;
+  const mixedExport =
+    project?.tiles.some(
+      ({ config }) =>
+        config.export.size !== currentExport.size ||
+        config.export.transparent !== currentExport.transparent,
+    ) ?? false;
   const currentBorder = project?.borderTemplate ?? borderTemplate;
   const currentContinuousNoise = project?.continuousNoise ?? continuousNoise;
   const currentUniformGrid = project?.uniformGrid ?? uniformGrid;
@@ -107,7 +138,11 @@ export default function BulkWorkspace({
   const projectKey = useMemo(
     () =>
       project
-        ? JSON.stringify({ columns: project.columns, order: project.order, tiles: project.tiles })
+        ? JSON.stringify({
+            columns: project.columns,
+            order: project.order,
+            tiles: project.tiles.map(({ id, config }) => ({ id, key: generationKey(config) })),
+          })
         : '',
     [project],
   );
@@ -115,11 +150,12 @@ export default function BulkWorkspace({
   const previewError = previewFailure?.key === projectKey ? previewFailure.message : null;
   const previewLoading = !!project && !currentPreview && !previewError;
   useEffect(() => {
-    if (!project) return;
+    const source = previewSource.current;
+    if (!source) return;
     let active = true;
     // Parent effects create the generation worker before this automatic first preview starts.
     void Promise.resolve()
-      .then(() => (active ? previewLoader.current(project) : null))
+      .then(() => (active ? previewLoader.current(source) : null))
       .then((tiles) => {
         if (active && tiles) {
           setPreviewData({ key: projectKey, tiles });
@@ -136,7 +172,7 @@ export default function BulkWorkspace({
     return () => {
       active = false;
     };
-  }, [project, projectKey, previewAttempt]);
+  }, [projectKey, previewAttempt]);
   const orderedTiles = useMemo(
     () =>
       project
@@ -152,6 +188,16 @@ export default function BulkWorkspace({
   const updateBorder = (next: TileConfig['border']) => {
     setBorderTemplate(next);
     if (project?.uniformBorder) changeProject(setBulkUniformity(project, 'border', true, next));
+  };
+  const updateGridVisibility = (
+    visibility: Partial<Pick<TileConfig['grid'], 'showGrid' | 'showSubgrid'>>,
+  ) => {
+    setGridTemplate({ ...currentGrid, ...visibility });
+    if (project) onProjectChange(setBulkGridVisibility(project, visibility));
+  };
+  const updateExport = (next: TileConfig['export']) => {
+    setExportTemplate(next);
+    if (project) onProjectChange(setBulkExportSettings(project, next));
   };
   const toggleUniformGrid = (enabled: boolean) => {
     setUniformGrid(enabled);
@@ -187,6 +233,7 @@ export default function BulkWorkspace({
       setGridTemplate(parsed.gridTemplate);
       setBorderTemplate(parsed.borderTemplate);
       if (parsed.tiles[0]) setFieldCount(parsed.tiles[0].config.paths.fieldCount);
+      if (parsed.tiles[0]) setExportTemplate(parsed.tiles[0].config.export);
       setError(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Die Seriendatei ist ungültig.');
@@ -208,15 +255,22 @@ export default function BulkWorkspace({
       gridTemplate: currentGrid,
       borderTemplate: currentBorder,
       fieldCount,
+      gridVisibility,
+      exportTemplate: currentExport,
     });
   };
   const selectedTile = project?.tiles.find((tile) => tile.id === selectedId);
-  const toggleExportView = (view: BulkExportOption, enabled: boolean) =>
-    setExportViews((current) =>
-      enabled
-        ? [...current, view].filter((value, index, values) => values.indexOf(value) === index)
-        : current.filter((value) => value !== view),
-    );
+  const toggleExportView = (view: BulkExportOption, enabled: boolean) => {
+    const next = enabled
+      ? [...exportViews, view].filter((value, index, values) => values.indexOf(value) === index)
+      : exportViews.filter((value) => value !== view);
+    setExportViews(next);
+    try {
+      saveBulkExportOptions(localStorage, next);
+    } catch {
+      /* Preferences are optional. */
+    }
+  };
   const previewTiles = useMemo(
     () =>
       currentPreview
@@ -414,6 +468,32 @@ export default function BulkWorkspace({
               </label>
             </div>
           )}
+          <label className="bulk-check compact">
+            <input
+              type="checkbox"
+              checked={gridVisibility.showGrid}
+              disabled={!!exportProgress || generating}
+              onChange={(event) =>
+                updateGridVisibility({
+                  showGrid: event.target.checked,
+                })
+              }
+            />
+            <span>Rasterlinien anzeigen</span>
+          </label>
+          <label className="bulk-check compact">
+            <input
+              type="checkbox"
+              checked={gridVisibility.showSubgrid}
+              disabled={!!exportProgress || generating}
+              onChange={(event) =>
+                updateGridVisibility({
+                  showSubgrid: event.target.checked,
+                })
+              }
+            />
+            <span>Subrasterlinien anzeigen</span>
+          </label>
           <label className="bulk-check">
             <input
               type="checkbox"
@@ -479,6 +559,75 @@ export default function BulkWorkspace({
               </label>
             </div>
           )}
+          <div className="bulk-divider" />
+          <label className="bulk-label">
+            Exportauflösung (px)
+            <input
+              type="number"
+              min={128}
+              max={4096}
+              step={1}
+              value={resolutionDraft ?? currentExport.size}
+              disabled={!!exportProgress || generating}
+              onBlur={() => setResolutionDraft(null)}
+              onChange={(event) => {
+                setResolutionDraft(event.target.value);
+                const size = event.target.valueAsNumber;
+                if (Number.isInteger(size) && size >= 128 && size <= 4096)
+                  updateExport({ ...currentExport, size });
+              }}
+            />
+          </label>
+          <p className="bulk-hint">
+            128–4096 px je Bild, für Einzelkacheln und Gesamtfeld. Eine Änderung gilt für alle
+            Kacheln; SVG bleibt frei skalierbar.
+          </p>
+          {mixedExport && (
+            <button className="text-button" onClick={() => updateExport(currentExport)}>
+              Exportwerte auf alle Kacheln anwenden
+            </button>
+          )}
+          <label className="bulk-check compact">
+            <input
+              type="checkbox"
+              checked={currentExport.transparent}
+              disabled={!!exportProgress || generating}
+              onChange={(event) =>
+                updateExport({ ...currentExport, transparent: event.target.checked })
+              }
+            />
+            <span>Transparenter Exporthintergrund</span>
+          </label>
+          <div className="bulk-export-picker">
+            <div className="bulk-export-picker-heading">
+              <strong>Exportinhalt im ZIP</strong>
+              <small>
+                Einzelkacheln und Gesamtfeld; jede gewählte Bildansicht enthält auch ein Gesamtbild.
+                GLB enthält Einzelmodelle und das zusammengesetzte Brett mit Farben und Texturen.
+                SVG enthält die Draufsicht als Vektoren; die Auflösung bestimmt die Bildgröße beim
+                Öffnen.
+              </small>
+            </div>
+            <div className="bulk-export-views" role="group" aria-label="Exportansichten">
+              {[
+                { id: 'top' as const, label: 'Draufsicht', Icon: Grid3X3 },
+                { id: 'orbit' as const, label: '3D-Ansicht', Icon: Box },
+                { id: 'perspective' as const, label: 'Perspektive', Icon: Move3D },
+                { id: 'svg' as const, label: 'SVG-Draufsicht', Icon: Hexagon },
+                { id: 'model' as const, label: '3D-Modell (GLB)', Icon: Hexagon },
+              ].map(({ id, label, Icon }) => (
+                <label className="bulk-export-view" key={id}>
+                  <input
+                    type="checkbox"
+                    checked={exportViews.includes(id)}
+                    disabled={!!exportProgress}
+                    onChange={(event) => toggleExportView(id, event.target.checked)}
+                  />
+                  <Icon size={14} /> {label}
+                </label>
+              ))}
+            </div>
+          </div>
           <button
             className="button full bulk-generate"
             disabled={generating || overLimit || !seed.trim()}
@@ -576,36 +725,6 @@ export default function BulkWorkspace({
               </div>
             )}
           </div>
-          {project && (
-            <div className="bulk-export-picker">
-              <div className="bulk-export-picker-heading">
-                <strong>Exportinhalt im ZIP</strong>
-                <small>
-                  Einzelkacheln und Gesamtfeld; jede gewählte Bildansicht enthält auch ein
-                  Gesamtbild. GLB enthält Einzelmodelle und das zusammengesetzte Brett mit Farben
-                  und Texturen. Gesamtbilder verwenden die Bildeinstellungen der ersten Kachel.
-                </small>
-              </div>
-              <div className="bulk-export-views" role="group" aria-label="Exportansichten">
-                {[
-                  { id: 'top' as const, label: 'Draufsicht', Icon: Grid3X3 },
-                  { id: 'orbit' as const, label: '3D-Ansicht', Icon: Box },
-                  { id: 'perspective' as const, label: 'Perspektive', Icon: Move3D },
-                  { id: 'model' as const, label: '3D-Modell (GLB)', Icon: Hexagon },
-                ].map(({ id, label, Icon }) => (
-                  <label className="bulk-export-view" key={id}>
-                    <input
-                      type="checkbox"
-                      checked={exportViews.includes(id)}
-                      disabled={!!exportProgress}
-                      onChange={(event) => toggleExportView(id, event.target.checked)}
-                    />
-                    <Icon size={14} /> {label}
-                  </label>
-                ))}
-              </div>
-            </div>
-          )}
           {project && (
             <div className="bulk-view-tabs" role="tablist" aria-label="Serienansicht">
               <button

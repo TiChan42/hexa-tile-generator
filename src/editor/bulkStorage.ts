@@ -1,4 +1,41 @@
 import { migrateBulkProject, type BulkProject } from '../core';
+import { z } from 'zod';
+import { BULK_EXPORT_OPTIONS } from './bulkArchive';
+import type { BulkExportOption } from './bulkArchive';
+
+export const BULK_EXPORT_STORAGE_KEY = 'hexa-studio-bulk-export-v1';
+const exportPreferencesSchema = z
+  .object({
+    version: z.literal(1),
+    options: z
+      .array(z.enum(BULK_EXPORT_OPTIONS))
+      .max(BULK_EXPORT_OPTIONS.length)
+      .refine((values) => new Set(values).size === values.length),
+  })
+  .strict();
+export function loadBulkExportOptions(
+  storage: Pick<Storage, 'getItem'> | null,
+): BulkExportOption[] {
+  try {
+    const value = storage?.getItem(BULK_EXPORT_STORAGE_KEY);
+    return value ? exportPreferencesSchema.parse(JSON.parse(value)).options : ['top'];
+  } catch {
+    return ['top'];
+  }
+}
+export function saveBulkExportOptions(
+  storage: Pick<Storage, 'setItem'> | null,
+  options: BulkExportOption[],
+): void {
+  try {
+    storage?.setItem(
+      BULK_EXPORT_STORAGE_KEY,
+      JSON.stringify(exportPreferencesSchema.parse({ version: 1, options })),
+    );
+  } catch {
+    /* Export remains available if preference storage is unavailable. */
+  }
+}
 
 export const BULK_STORAGE_KEY = 'hexa-studio-bulk-v4';
 const LEGACY_BULK_STORAGE_KEYS = [

@@ -32,6 +32,8 @@ export {
   createBulkProject,
   migrateBulkProject,
   setBulkContinuousNoise,
+  setBulkGridVisibility,
+  setBulkExportSettings,
   setBulkUniformity,
   shuffleBulkProject,
   syncBulkTile,

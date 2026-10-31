@@ -15,6 +15,8 @@ import {
   migrateBulkProject,
   setBulkContinuousNoise,
   setBulkUniformity,
+  setBulkGridVisibility,
+  setBulkExportSettings,
   shuffleBulkProject,
   syncBulkTile,
   type BulkGenerationOptions,
@@ -66,6 +68,69 @@ function fixture(): BulkProject {
 }
 
 describe('editable bulk collections', () => {
+  it.each([true, false])(
+    'applies explicit grid visibility and export size during generation (uniform grid: %s)',
+    (uniformGrid) => {
+      const input = { ...options, rows: 1, columns: 1, uniformGrid };
+      const original = createBulkProject(input);
+      const changed = createBulkProject({
+        ...input,
+        gridVisibility: { showGrid: false, showSubgrid: false },
+        exportTemplate: { size: 512, transparent: false },
+      });
+      const before = original.tiles[0]!.config,
+        after = changed.tiles[0]!.config;
+      expect(after.grid).toEqual({ ...before.grid, showGrid: false, showSubgrid: false });
+      expect(after.export).toEqual({ size: 512, transparent: false });
+      expect(after.paths).toEqual(before.paths);
+      expect(after.decoration).toEqual(before.decoration);
+      expect(after.terrain).toEqual(before.terrain);
+      expect(after.actions).toEqual(before.actions);
+      expect(bulkProjectSchema.parse(changed)).toEqual(changed);
+    },
+  );
+  it('changes series grid visibility and export settings without rebuilding mixed rasters or field metadata', () => {
+    const original = fixture();
+    original.uniformGrid = false;
+    original.tiles[1]!.config.grid.kind = 'diamond';
+    original.tiles[1]!.config.export.size = 256;
+    original.tiles[0]!.config.paths.fields = [
+      {
+        id: 'center',
+        cellIds: [],
+        action: 'gold',
+        resourceAmount: 3,
+        label: 'Mein Feld',
+        heightOffset: 0.05,
+      },
+    ];
+    const before = structuredClone(original);
+    const hidden = setBulkGridVisibility(original, { showGrid: false, showSubgrid: false });
+    const changed = setBulkExportSettings(hidden, { size: 768, transparent: false });
+    for (const [index, tile] of changed.tiles.entries()) {
+      const old = before.tiles[index]!.config;
+      expect(tile.config).toEqual({
+        ...old,
+        grid: { ...old.grid, showGrid: false, showSubgrid: false },
+        export: { size: 768, transparent: false },
+      });
+    }
+    expect(original).toEqual(before);
+    const mixedLines = structuredClone(original);
+    mixedLines.tiles[1]!.config.grid.showSubgrid = true;
+    const mainHidden = setBulkGridVisibility(mixedLines, { showGrid: false });
+    expect(mainHidden.tiles[1]!.config.grid.showSubgrid).toBe(true);
+    expect(mainHidden.tiles[0]!.config.grid.showSubgrid).toBe(false);
+    expect(setBulkGridVisibility(hidden, { showGrid: true, showSubgrid: false })).toEqual(before);
+    for (const size of [0, 127, 4097, 512.5])
+      expect(() => setBulkExportSettings(original, { size, transparent: true })).toThrow();
+    expect(() =>
+      createBulkProject({ ...options, exportTemplate: { size: 0, transparent: true } }),
+    ).toThrow();
+    expect(() =>
+      bulkGenerationOptionsSchema.parse({ ...options, gridVisibility: { showGrid: false } }),
+    ).toThrow();
+  });
   it('captures an edited global distribution in every new series tile', () => {
     const actionDistribution = actionProbabilitiesSchema.parse(ACTION_PROBABILITIES);
     for (const { id } of ACTIONS) actionDistribution.baseWeights[id] = id === 'gold' ? 100 : 0;
